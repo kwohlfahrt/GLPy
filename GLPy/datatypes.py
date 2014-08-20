@@ -22,11 +22,6 @@ base_types.update({ "mat{}".format(size): 'float'
 base_types.update({ "mat{}x{}".format(size1, size2): 'float'
                     for size1, size2 in product(vector_sizes, repeat=2) })
 
-uniform_types = { 'bool': 'i'
-                , 'int': 'i'
-                , 'uint': 'ui'
-                , 'float': 'f' }
-
 numpy_types = { 'bool': dtype('int32') # UPSTREAM: refuses to glGetUniform if GLboolean
 			  , 'int': dtype('int32')
 			  , 'uint': dtype('uint32')

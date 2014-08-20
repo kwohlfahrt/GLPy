@@ -81,6 +81,14 @@ class UniformTest(unittest.TestCase):
 		new_is = numpy.array([6, 2, 0], dtype='int32')
 		self.program.uniforms['is'] = new_is
 		assert_array_equal(self.program.uniforms['is'].data, new_is)
+	
+	def test_invalid_uniform(self):
+		shader_files = { 'vertex': 'uniform.vert'
+		               , 'fragment': 'compile.frag' }
+		shaders = readShaders(**shader_files)
+		uniforms = [GLSLVar('xform', 'mat4', 1), GLSLVar('foobar', 'vec3', 1)]
+
+		self.assertRaises(ValueError, Program, shaders, uniforms=uniforms)
 
 # TODO: Test matrix vertex attributes
 class VertexBufferTest(unittest.TestCase):

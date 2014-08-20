@@ -9,10 +9,15 @@ import numpy
 
 from util.misc import cumsum, product
 
-from .datatypes import (data_types, uniform_types, vector_sizes, prefixes,
+from .datatypes import (data_types, vector_sizes, prefixes,
                         GLSLVar, BlockMember)
 
 from .buffers import Buffer, Empty
+
+uniform_types = { 'bool': 'i'
+                , 'int': 'i'
+                , 'uint': 'ui'
+                , 'float': 'f' }
 
 setter_functions = {}
 getter_functions = {}
@@ -57,8 +62,8 @@ class UniformAttribute(GLSLVar):
 		return cls(program, name=var.name, gl_type=var.type, shape=var.shape)
 	
 	def __str__(self):
-		base = str(super())
-		if self.location is not None:
+		base = super().__str__()
+		if self.location != -1:
 			layout = "layout(location={})".format(self.location)
 			return ' '.join((layout, base))
 		return base
@@ -73,6 +78,8 @@ class UniformAttribute(GLSLVar):
 	
 	@property
 	def data(self):
+		if self.location == -1:
+			raise RuntimeError("'{}' is not a uniform attribute of {}'".format(self, self.program))
 		out_buf = numpy.empty(self.shape, dtype=self.dtype)
 		if self.shape == (1,):
 			self.getter(self.program.handle, self.location, out_buf)
@@ -84,15 +91,9 @@ class UniformAttribute(GLSLVar):
 	
 	@data.setter
 	def data(self, value):
-		if self.location == -1:
-			raise RuntimeError("No uniform variable named '{}'".format(self.name))
-
 		GL.glUseProgram(self.program.handle)
 		self.setter(self.location, self.count, value)
 		GL.glUseProgram(0)
-	
-	def __str__(self):
-		return 'layout(location={}) {}'.format(self.location, GLSLVar.__str__(self))
 
 def glGetUniformIndices(program, uniform_names):
 	name_array = c.c_char_p * len(uniform_names)
