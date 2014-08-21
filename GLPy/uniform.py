@@ -9,7 +9,7 @@ import numpy
 
 from util.misc import cumsum, product
 
-from .datatypes import (data_types, vector_sizes, prefixes,
+from .datatypes import (data_types, sampler_types, vector_sizes, prefixes,
                         GLSLVar, BlockMember)
 
 from .buffers import Buffer, Empty
@@ -33,6 +33,12 @@ for data_type in data_types:
 		vector_type = "{}vec{}".format(prefix, size)
 		setter_functions[vector_type] = getattr(GL, 'glUniform{}{}v'.format(size, code))
 		getter_functions[vector_type] = getattr(GL, 'glGetUniform{}v'.format(code))
+
+for sampler_type in sampler_types.keys():
+	for data_type in ['int', 'uint', 'float']:
+		gl_type = "{}sampler{}".format(prefixes[data_type], sampler_type)
+		setter_functions[gl_type] = getattr(GL, 'glUniform1iv'.format(code))
+		getter_functions[gl_type] = getattr(GL, 'glUniform1iv'.format(code))
 
 for size1, size2 in cartesian(vector_sizes, repeat=2):
 	if size1 == size2:

@@ -8,11 +8,11 @@ from itertools import product
 from collections import namedtuple
 from functools import partial
 
-SHADER_TYPES = {'vertex': GL.GL_VERTEX_SHADER,
-                'fragment': GL.GL_FRAGMENT_SHADER,
-                'geometry': GL.GL_GEOMETRY_SHADER,
-                'tesselation control': GL.GL_TESS_CONTROL_SHADER,
-                'tesselation evaluation': GL.GL_TESS_EVALUATION_SHADER}
+SHADER_TYPES = { 'vertex': GL.GL_VERTEX_SHADER
+               , 'fragment': GL.GL_FRAGMENT_SHADER
+               , 'geometry': GL.GL_GEOMETRY_SHADER
+               , 'tesselation control': GL.GL_TESS_CONTROL_SHADER
+               , 'tesselation evaluation': GL.GL_TESS_EVALUATION_SHADER }
 
 class Program:
 	"""An OpenGL program.

@@ -1,13 +1,12 @@
 #version 330
 
 in vec4 position;
-in vec3 color;
 
 out block {
-	flat vec3 color;
+	vec2 uv;
 } Out;
 
 void main(){
-	Out.color = color;
+	Out.uv = position.xy;
 	gl_Position =  position;
 }

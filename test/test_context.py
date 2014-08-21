@@ -7,7 +7,7 @@ from OpenGL import GLUT, GL
 import numpy
 from numpy.testing import assert_array_equal
 
-from GLPy import Program, GLSLVar, GLSLType, VAO, VertexBuffer, UniformBlock, UniformBuffer
+from GLPy import Program, GLSLVar, GLSLType, VAO, VertexBuffer, UniformBlock, UniformBuffer, ImmutableTexture
 
 class ContextTest(unittest.TestCase):
 	def setUp(self):
@@ -88,7 +88,10 @@ class UniformTest(unittest.TestCase):
 		shaders = readShaders(**shader_files)
 		uniforms = [GLSLVar('xform', 'mat4', 1), GLSLVar('foobar', 'vec3', 1)]
 
-		self.assertRaises(ValueError, Program, shaders, uniforms=uniforms)
+		program = Program(shaders, uniforms=uniforms)
+
+		with self.assertRaises(RuntimeError):
+			program.uniforms['foobar'].data
 
 # TODO: Test matrix vertex attributes
 class VertexBufferTest(unittest.TestCase):
@@ -155,7 +158,7 @@ class VertexAttributeTest(unittest.TestCase):
 		               , 'fragment': 'vertices.frag' }
 		shaders = readShaders(**shader_files)
 
-		vertex_attributes = [ GLSLVar('position', 'vec3')
+		vertex_attributes = [ GLSLVar('position', 'vec4')
 							, GLSLVar('color', 'vec3') ]
 
 		ContextTest.setUp(self)
@@ -166,7 +169,7 @@ class VertexAttributeTest(unittest.TestCase):
 		ContextTest.tearDown(self)
 	
 	def test_position(self):
-		buf = VertexBuffer(self.vao.attributes[0])
+		buf = VertexBuffer(GLSLType('vec3'))
 		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
 		buf[:] = data
 		self.vao[0].data = buf.blocks[0].tracks[0]
@@ -227,3 +230,43 @@ class UniformBlockTest(unittest.TestCase):
 		a.dtype = dt
 		with self.assertRaises(ValueError):
 			buf.blocks[0].members[0].data = a
+
+class TextureTest(unittest.TestCase):
+	def setUp(self):
+		ContextTest.setUp(self)
+	
+	def tearDown(self):
+		ContextTest.tearDown(self)
+	
+	def testTexture(self):
+		size = (4, 4)
+		tex = ImmutableTexture(size, components=1, bits=8, normalized=False)
+		data = numpy.zeros(size, dtype='uint8')
+		data[1:2, 1:2] = 1;
+		tex[:,:] = data
+	
+	def testSampler(self):
+		size = (4, 4)
+		tex = ImmutableTexture(size, components=1, bits=8, normalized=True)
+		data = numpy.zeros(size, dtype='uint8')
+		data[1:2, 1:2] = 255;
+		tex[:,:] = data
+		
+		shader_files = { 'vertex': 'texture.vert'
+		               , 'fragment': 'texture.frag' }
+		shaders = readShaders(**shader_files)
+
+		vertex_attributes = [ GLSLVar('position', 'vec4') ]
+		vao = VAO(*vertex_attributes)
+
+		uniform_attributes = [ GLSLVar('tex', 'sampler2D') ]
+
+		program = Program(shaders, attributes=vao.attributes, uniforms=uniform_attributes)
+
+		buf = VertexBuffer(GLSLType('vec3'))
+		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
+		buf[:] = data
+		vao[0].data = buf.blocks[0].tracks[0]
+
+		tex.activate(1)
+		program.uniforms['tex'].data = 1

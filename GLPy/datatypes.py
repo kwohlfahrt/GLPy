@@ -9,6 +9,10 @@ from util.misc import product as totalProduct
 
 vector_sizes = range(2, 5)
 data_types = ['bool', 'int', 'uint', 'float']
+sampler_types = { '1D': GL.GL_TEXTURE_1D
+                , '2D': GL.GL_TEXTURE_2D
+				, '3D': GL.GL_TEXTURE_3D }
+
 prefixes = { 'bool': 'b'
            , 'int': 'i'
            , 'uint': 'u'
@@ -21,6 +25,8 @@ base_types.update({ "mat{}".format(size): 'float'
                     for size in vector_sizes })
 base_types.update({ "mat{}x{}".format(size1, size2): 'float'
                     for size1, size2 in product(vector_sizes, repeat=2) })
+base_types.update({ "{}sampler{}".format(data_type, sampler_type): 'int'
+                    for data_type, sampler_type in product(['', 'i', 'u'], sampler_types)})
 
 numpy_types = { 'bool': dtype('int32') # UPSTREAM: refuses to glGetUniform if GLboolean
 			  , 'int': dtype('int32')
