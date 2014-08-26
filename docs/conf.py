@@ -33,6 +33,6 @@ intersphinx_mapping = {'python3': ('http://docs.python.org/3.4/', None),}
 
 rst_epilog = '''
 .. |buffer-bind| replace:: :ref:`Binds a buffer <buffer-bind-warning>`
-
+.. |texture-bind| replace:: :ref:`Binds a texture <texture-bind-warning>`
 .. _PyOpenGL: http://pyopengl.sourceforge.net/
 '''

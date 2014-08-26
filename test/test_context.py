@@ -109,13 +109,13 @@ class VertexBufferTest(unittest.TestCase):
 	def test_simple_buffer(self):
 		buf = VertexBuffer(GLSLType('vec3'))
 		data = numpy.array([[1, 1, 1], [1, 2, 3], [1, 2, 1]], dtype='float32')
-		buf[:] = data,
+		buf[...] = data,
 		self.assertEqual(len(buf), 3)
-		buf.blocks[0][:] = data
+		buf.blocks[0][...] = data
 		self.assertEqual(len(buf), 3)
 		data = numpy.array([[1, 1, 1, 2], [1, 2, 3, 2], [1, 2, 1, 2]], dtype='float32')
 		with self.assertRaises(ValueError):
-			buf[:] = data,
+			buf[...] = data,
 		with self.assertRaises(ValueError):
 			buf.blocks[0][:] = data
 	
@@ -126,7 +126,7 @@ class VertexBufferTest(unittest.TestCase):
 		                   ,([1, 2, 3], 0)
 						   ,([4, 0, 0], 2)]
 						  , dtype=dt)
-		buf[:] = data,
+		buf[...] = data,
 		self.assertEqual(len(buf), 3)
 		buf.blocks[0][:] = data
 		self.assertEqual(len(buf), 3)
@@ -136,9 +136,9 @@ class VertexBufferTest(unittest.TestCase):
 						   ,([4, 0, 0, 0], 2)]
 						  , dtype=dt)
 		with self.assertRaises(ValueError):
-			buf[:] = data,
+			buf[...] = data,
 		with self.assertRaises(ValueError):
-			buf.blocks[0][:] = data
+			buf.blocks[0][...] = data
 
 	def test_array_struct_buffer(self):
 		buf = VertexBuffer([GLSLType('vec3'), GLSLType('float', shape=(2,))])
@@ -147,9 +147,9 @@ class VertexBufferTest(unittest.TestCase):
 		                   ,([1, 2, 3], [0, 3])
 						   ,([4, 0, 0], [2, 2])]
 						  , dtype=dt)
-		buf[:] = data,
+		buf[...] = data,
 		self.assertEqual(len(buf), 3)
-		buf.blocks[0][:] = data
+		buf.blocks[0][...] = data
 		self.assertEqual(len(buf), 3)
 
 class VertexAttributeTest(unittest.TestCase):
@@ -171,7 +171,7 @@ class VertexAttributeTest(unittest.TestCase):
 	def test_position(self):
 		buf = VertexBuffer(GLSLType('vec3'))
 		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
-		buf[:] = data
+		buf[...] = data
 		self.vao[0].data = buf.blocks[0].tracks[0]
 
 class UniformBlockTest(unittest.TestCase):
@@ -206,22 +206,22 @@ class UniformBlockTest(unittest.TestCase):
 	
 	def test_buffer(self):
 		buf = UniformBuffer(self.uniform_block)
-		buf.blocks[0].members[1].data = True
-		buf.blocks[0].members[0].data = numpy.eye(4)
+		buf.blocks[0][1] = numpy.asarray(True, dtype='float32')
+		buf.blocks[0][0] = numpy.eye(4, dtype='float32')
 	
 	def test_buffer_fail(self):
 		buf = UniformBuffer(self.uniform_block)
 		with self.assertRaises(ValueError):
-			buf.blocks[0].members[0].data = True
+			buf.blocks[0][0] = numpy.asarray(True, dtype='float32')
 		with self.assertRaises(ValueError):
-			buf.blocks[0].members[0].data = numpy.eye(3)
+			buf.blocks[0][0] = numpy.eye(3, dtype='float32')
 	
 	def test_buffer_record(self):
 		buf = UniformBuffer(self.uniform_block)
 		a = numpy.arange(16, dtype='float32')
 		dt = numpy.dtype([('', 'float32', (4, 4))])
 		a.dtype = dt
-		buf.blocks[0].members[0].data = a
+		buf.blocks[0][0] = a
 
 	def test_buffer_record_fail(self):
 		buf = UniformBuffer(self.uniform_block)
@@ -229,7 +229,7 @@ class UniformBlockTest(unittest.TestCase):
 		dt = numpy.dtype([('', 'float32', (3, 4))])
 		a.dtype = dt
 		with self.assertRaises(ValueError):
-			buf.blocks[0].members[0].data = a
+			buf.blocks[0][0] = a
 
 class TextureTest(unittest.TestCase):
 	def setUp(self):
@@ -265,7 +265,7 @@ class TextureTest(unittest.TestCase):
 
 		buf = VertexBuffer(GLSLType('vec3'))
 		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
-		buf[:] = data
+		buf[...] = data
 		vao[0].data = buf.blocks[0].tracks[0]
 
 		tex.activate(1)

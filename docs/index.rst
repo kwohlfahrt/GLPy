@@ -127,21 +127,23 @@ constructors.
    projection_buffer = UniformBuffer(projection_block)
 
    element_buffer = ElementBuffer()
-   element_buffer[:] = indices
+   element_buffer[...] = indices
 
    vertex_buffer = VertexBuffer(vao.attributes[0])
 
 Then the uniforms and buffer contents are set, and vertex data is added to the the VAO.
 
 .. testcode:: sample
-   
-   projection_buffer.blocks[0].members[0].data = xform.lookAt((0, 0, 3)) # model_camera_xform
-   projection_buffer.blocks[0].members[1].data = xform.perspective(radians(90)) # camera_clip_xform
+
+   # model_camera_xform
+   projection_buffer.blocks[0].members[0].data = xform.lookAt((0, 0, 3)).astype('float32')
+   # camera_clip_xform
+   projection_buffer.blocks[0].members[1].data = xform.perspective(radians(90)).astype('float32')
    program.uniforms['red'].data = False
 
    # We only want to set 3 of the vec4 components
    vertex_buffer.blocks[0].tracks[0].components = 3
-   vertex_buffer[:] = cube,
+   vertex_buffer[...] = cube,
    vao.attributes[0].data = vertex_buffer.blocks[0].tracks[0]
 
    vao.elements = element_buffer
@@ -166,7 +168,7 @@ between different color schemes.
    arcball = ArcBall(window_size, (window_size[0], -window_size[1]))
 
    def updateRotation(rotation):
-      projection_buffer.blocks[0][0].data = xform.lookAt((0, 0, 3)).dot(rotation)
+      projection_buffer.blocks[0][0] = xform.lookAt((0, 0, 3)).dot(rotation).astype('float32')
       display()
 
    def mousebutton(button, state, x, y):

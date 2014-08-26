@@ -6,10 +6,11 @@ uniform Projection {
 };
 
 void main(){
-	vec3 pos = vec3(1, 1, 1);
+	vec4 pos;
 	if (origin){
-		pos = vec3(0, 0, 0);
+		pos = vec4(0, 0, 0, 1);
+	} else {
+		pos = vec4(1, 1, 1, 1);
 	}
-	gl_Position = xform
-	            * vec4(pos, 1);
+	gl_Position = xform * pos;
 }

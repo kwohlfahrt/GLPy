@@ -1,13 +1,13 @@
 from OpenGL import GL
 from OpenGL.constants import GLboolean, GLint, GLuint, GLfloat
 
-from itertools import product as cartesian, chain
+from itertools import product as cartesian, chain, accumulate
 from collections import namedtuple
 import ctypes as c
 
 import numpy
 
-from util.misc import cumsum, product
+from util.misc import product, isContiguous
 
 from .datatypes import (data_types, sampler_types, vector_sizes, prefixes,
                         GLSLVar, BlockMember)
@@ -97,9 +97,8 @@ class UniformAttribute(GLSLVar):
 	
 	@data.setter
 	def data(self, value):
-		GL.glUseProgram(self.program.handle)
-		self.setter(self.location, self.count, value)
-		GL.glUseProgram(0)
+		with self.program:
+			self.setter(self.location, self.count, value)
 
 def glGetUniformIndices(program, uniform_names):
 	name_array = c.c_char_p * len(uniform_names)
@@ -143,7 +142,7 @@ class UniformBlock:
 
 	def __str__(self):
 		members = ';\n\t'.join(str(m) for m in self.members)
-		"uniform {} {{\n\t{};\n}}{};".format(self.name, members, self.instance_name)
+		return "uniform {} {{\n\t{};\n}}{};".format(self.name, members, self.instance_name)
 	
 	@property
 	def dtype(self):
@@ -165,43 +164,63 @@ class UniformBuffer(Buffer):
 
 	def __init__(self, *contents, usage=GL.GL_DYNAMIC_DRAW, handle=None):
 		super().__init__(usage, handle)
-		*offsets, size = list(cumsum(c.nbytes for c in contents))
+		*offsets, size = chain([0], accumulate(c.nbytes for c in contents))
 		self.blocks = [UniformBlockData.fromUniformBlock(self, offset, b)
 		               for b, offset in zip(contents, offsets)]
 
 		with self:
-			self.bytes[:] = Empty(size)
+			self.bytes[...] = Empty(size)
 			for block, data in zip(contents, self.blocks):
-				# ASSERT: block.nbytes == data.nbytes
 				GL.glBindBufferRange(self.target, block.binding, self.handle, data.offset, block.nbytes)
 	
+	# TODO: Add __setitem__
+
 class UniformBlockData:
-	def __init__(self, buf, offset, dtype, *members):
+	def __init__(self, buf, offset, dtype, *members, shape=1):
 		self.buf = buf
 		self.offset = offset
 		self.members = [UniformBlockMemberData.fromUniformBlockMember(self, m) for m in members]
 		self.dtype = dtype
+		self.shape = shape
 	
 	@classmethod
 	def fromUniformBlock(cls, buf, offset, blk):
-		return cls(buf, offset, blk.dtype, *blk.members)
+		return cls(buf, offset, blk.dtype, *blk.members, shape=blk.shape)
 	
 	@property
 	def nbytes(self):
 		return self.dtype.itemsize
 	
-	@property
-	def data(self):
+	def __getitem__(self, idx):
 		raise NotImplementedError("Uniform Block data access not implemented.")
 	
-	@data.setter
-	def data(self, value):
-		# Members can all be different dtypes so no way to cast sensibly
-		value.dtype = self.dtype
-		value.shape = self.shape
+	def __setitem__(self, idxs, value):
+		value = numpy.asarray(value)
 
-		end = self.offset + self.nbytes
-		self.buf[self.offset:end] = value
+		if all(s == 1 for s in self.shape):
+			idx = idxs if isinstance(idxs, slice) else slice(idxs, idxs + 1)
+			idxs = [slice(1), idx]
+		else:
+			idxs = (i if isinstance(i, slice) else slice(i, i + 1) for i in idxs)
+		if not isContiguous(idxs, self.shape):
+			raise IndexError("Only contiguous buffer sections may be set.")
+
+		*elements, members = idxs
+		members = range(*members.indices(len(self.members)))
+		elements = [range(*e.indices(s)) for e, s in zip(elements, self.shape)]
+
+		value = value.ravel()
+		value.dtype = numpy.dtype([('', self.dtype.fields[n][0].base, self.dtype.fields[n][0].shape)
+								   for n in self.dtype.names[members.start:members.stop]])
+		value.shape = [len(r) for r in elements]
+
+		start = ( self.offset
+		        + product(e.start for e in elements) * self.dtype.itemsize 
+		        + sum(m.dtype.itemsize for m in self.members[:members.start]))
+		end = ( start
+		      + sum(m.dtype.itemsize for m in self.members[members.start:members.stop])
+			  * product(e.stop - e.start for e in elements))
+		self.buf.bytes[start:end] = value
 
 class UniformBlockMemberData:
 	def __init__(self, blk, offset, dtype, shape=1):
@@ -218,28 +237,7 @@ class UniformBlockMemberData:
 		return cls(blk, member.offset, member.dtype, member.shape)
 
 	@property
-	def data(self):
-		raise NotImplementedError("Uniform Block data access not implemented.")
-	
-	@property
 	def nbytes(self):
 		return self.dtype.itemsize
-	
-	@property
-	def offset(self):
-		return self.member_offset + self.block.offset
-	
-	@data.setter
-	def data(self, value):
-		value = numpy.asarray(value)
-		if len(value.dtype) == 0:
-			value = value.astype(self.dtype.base)
-			value.shape = tuple(chain(self.shape, (-1,)))
-			# UPSTREAM: self.dtype doesn't work
-			value.dtype = numpy.dtype([('', self.dtype)])
-		else:
-			value.dtype = numpy.dtype([('', self.dtype)])
-			value.shape = self.shape
 
-		end = self.offset + self.nbytes
-		self.block.buf.bytes[self.offset:end] = value
+	# TODO: Add __setitem__

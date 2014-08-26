@@ -22,9 +22,17 @@ gl_type_indices.update({ "mat{}x{}".format(size1, size2): size1 for size1, size2
 
 # TODO: Allow specifying attribute locations in advance
 class VAO:
+	'''A class to represent VAO objects.
+
+	:param [GLSLVar] attributes: The attributes that the VAO will contain.
+		Locations will be automatically generated.
+	:param handle: The OpenGL handle to use. One will be created if it is None
+	:type param: int or None'''
+
 	def __init__(self, *attributes, handle=None):
 		self.handle = GL.glGenVertexArrays(1) if handle is None else handle
 		self.bound = 0
+		self.element_buffer = None
 
 		self.attributes = []
 		index = 0
@@ -39,15 +47,19 @@ class VAO:
 	
 	@property
 	def elements(self):
+		return self.element_buffer
 		raise NotImplementedError("Element read access not implemented.")
 	
 	@elements.setter
 	def elements(self, value):
+		'''Set an ElementBuffer to be used with this VAO'''
+
 		if value.target != GL.GL_ELEMENT_ARRAY_BUFFER:
 			raise ValueError("Buffer target is not GL_ELEMENT_ARRAY_BUFFER")
 		with self:
 			GL.glBindBuffer(value.target, value.handle)
 		GL.glBindBuffer(value.target, 0)
+		self.element_buffer = value
 	
 	def __getitem__(self, i):
 		return self.attributes[i]
@@ -142,15 +154,6 @@ class VertexDataTrack:
 	def stride(self):
 		return self.block.stride
 	
-#	@property
-#	def components(self):
-#		return self._components
-#	
-#	@components.setter
-#	def components(self, value):
-#		raise ValueError("Shouldn't be setting components!")
-#		self._components = value
-	
 	def setFormat(self, fmt):
 		self.dtype = fmt.dtype
 		self.offset = fmt.offset
@@ -169,13 +172,14 @@ class VertexDataBlock:
 
 		self.length = 0
 		self.stride = None
-	
+		self.dtype = None
+
 	def __len__(self):
 		return self.length
-	
+
 	def __getitem__(self, i):
 		raise NotImplementedError("Vertex Buffer access is not yet implemented.")
-	
+
 	def cast(self, dtype):
 		if len(dtype) == 0:
 			if dtype.base.base not in gl_types:
@@ -192,9 +196,9 @@ class VertexDataBlock:
 			new_dtype = [('', dt.base.base, (c.indices, c.components))
 			             for dt, c in zip(subIter(dtype), self.tracks)]
 		return numpy.dtype(new_dtype)
-	
+
 	def __setitem__(self, i, value):
-		if self.location == (None, None):
+		if None in self.location:
 			raise RuntimeError("Cannot set a buffer block before it's location has been defined.")
 
 		value = numpy.asarray(value)
@@ -209,30 +213,32 @@ class VertexDataBlock:
 			value.dtype = new_dtype
 			value = value.ravel()
 
-		if not isinstance(i, slice):
-			i = slice(i, i + 1)
-		if i.step is not None:
-			raise ValueError("Only contiguous buffer sections may be set.")
-		elif i.start is None and i.stop is not None:
-			i = slice(i.stop, i.stop + 1)
-
-		if i.start is None and i.stop is None:
+		if i is Ellipsis:
 			i = slice(0, len(value))
-			self.dtype = None
-		elif len(value) != i.stop - i.start:
-			raise ValueError("New data is a different length to data being set.")
-		if self.dtype is not None and value.dtype != self.dtype:
-			raise ValueError("Value dtype does not match rest of buffer.")
+		else:
+			if not isinstance(i, slice):
+				i = slice(i, i + 1)
+			else:
+				i = slice(*i.indices(len(self)))
+			if i.step != 1:
+				raise IndexError("Only contiguous buffer sections may be set.")
+			if len(value) != i.stop - i.start:
+				raise ValueError("New data is a different length to data being set.")
+			if value.dtype != self.dtype:
+				raise ValueError("Value dtype does not match rest of buffer.")
 
-		start = value.dtype.itemsize * i.start
-		end = value.dtype.itemsize * i.stop
-		if end > self.location.nbytes or start < 0:
-			raise ValueError("Cannot write outside of buffer block bounds.")
+		start = self.location.offset + value.dtype.itemsize * i.start
+		end = self.location.offset + value.dtype.itemsize * i.stop
+		if end - start > self.location.nbytes:
+			raise IndexError("Cannot write outside of buffer block bounds.")
 
-		self.length = len(value)
+		if i is Ellipsis:
+			self.dtype = value.dtype
+			self.length = len(value)
+
 		self.stride = value.itemsize
 		with self.buf:
-			self.buf.bytes[self.location.offset + start:self.location.offset + end] = value
+			self.buf.bytes[start:end] = value
 			for (dt, offset), track in zip(sorted(value.dtype.fields.values(), key=lambda x: x[1]), self.tracks):
 				track.setFormat(VertexFormat(dt.base, offset + self.location.offset, dt.shape[-1], self.stride))
 
@@ -247,15 +253,15 @@ class VertexBuffer(Buffer):
 				self.blocks.append(VertexDataBlock(self, *c))
 			except TypeError:
 				self.blocks.append(VertexDataBlock(self, c))
-	
+
 	def __len__(self):
 		return min(len(c) for c in self.blocks)
 
-	def __getitem__(self):
-		raise NotImplementedError("Buffer access is not yet implemented.")
-	
+	def __getitem__(self, i):
+		raise NotImplementedError("Vertex buffer access is not yet implemented.")
+
 	def __setitem__(self, i, values):
-		if i == slice(None, None, None):
+		if i is Ellipsis:
 			tmp = numpy.empty(sum(v.nbytes for v in values), dtype='bytes')
 
 			# Setting dtype in for loop doesn't stick on next loop
@@ -265,6 +271,7 @@ class VertexBuffer(Buffer):
 				value.dtype = new_dtype
 				value = value.ravel()
 				block.length = len(value)
+				block.dtype = value.dtype
 				block.location = SubBuffer(offset, value.nbytes)
 				block.stride = value.dtype.itemsize
 
@@ -273,7 +280,7 @@ class VertexBuffer(Buffer):
 				offset += value.nbytes
 
 			with self:
-				self.bytes[:] = tmp
+				self.bytes[i] = tmp
 				for block, value, dtype in zip(self.blocks, values, new_dtypes):
 					for (dt, offset), track in zip(sorted(dtype.fields.values(), key=lambda x: x[1]), block.tracks):
 						track.setFormat(VertexFormat(dt, offset + block.location.offset, dt.shape[-1], block.stride))
@@ -294,6 +301,8 @@ class ElementBuffer(Buffer):
 		if gl_types[values.dtype] not in gl_integer_types:
 			raise ValueError("Array dtype '{}' is not a valid dtype for an element buffer".format(values.dtype))
 		values.shape = (-1,)
+		if i is not Ellipsis:
+			i = slice(*(s * self.dtype.itemsize for s in i.indices()))
 		self.bytes[i] = values
 		self.length = len(values)
 		self.dtype = values.dtype
