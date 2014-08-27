@@ -24,10 +24,12 @@ gl_type_indices.update({ "mat{}x{}".format(size1, size2): size1 for size1, size2
 class VAO:
 	'''A class to represent VAO objects.
 
-	:param [GLSLVar] attributes: The attributes that the VAO will contain.
+	:param attributes: The attributes that the VAO will contain.
 		Locations will be automatically generated.
-	:param handle: The OpenGL handle to use. One will be created if it is None
-	:type param: int or None'''
+	:type attributes: [:py:class:`.GLSLVar`]
+	:param handle: The OpenGL handle to use. One will be created if it is :py:obj:`None`
+	:type param: :py:obj`int` or :py:obj:`None`
+	'''
 
 	def __init__(self, *attributes, handle=None):
 		self.handle = GL.glGenVertexArrays(1) if handle is None else handle
@@ -47,13 +49,20 @@ class VAO:
 	
 	@property
 	def elements(self):
+		'''The element buffer to be used with this VAO for indexed drawing.
+
+		.. admonition:: |buffer-bind|
+
+		   Setting to this property binds the buffer being assigned to the VAO
+
+		.. admonition:: |vao-bind|
+
+		   Setting to this property binds the VAO being assigned to
+		'''
 		return self.element_buffer
-		raise NotImplementedError("Element read access not implemented.")
 	
 	@elements.setter
 	def elements(self, value):
-		'''Set an ElementBuffer to be used with this VAO'''
-
 		if value.target != GL.GL_ELEMENT_ARRAY_BUFFER:
 			raise ValueError("Buffer target is not GL_ELEMENT_ARRAY_BUFFER")
 		with self:
@@ -68,6 +77,16 @@ class VAO:
 		return iter(self.attributes)
 
 	def __enter__(self):
+		'''VAO objects provide a context manager. This keeps track of how many times the VAO has
+		been bound and unbound. Grouping operations on a VAO within a context where it is bound
+		prevents repeated binding and un-binding.
+
+		.. _vao-bind-warning:
+		.. warning::
+		   It is not allowed to bind two VAOs simultaneously. It is allowed to bind the *same* VAO
+		   multiple times. Methods that bind a VAO will be documented
+		'''
+
 		if not self.bound:
 			GL.glBindVertexArray(self.handle)
 		self.bound += 1
@@ -78,6 +97,10 @@ class VAO:
 			GL.glBindVertexArray(0)
 
 class VertexAttribute(GLSLVar):
+	"""A vertex attribute. Should not be instantiated directly, but instead be accessed through its
+	parent VAO.
+	"""
+
 	def __init__(self, location, vao, name, gl_type, shape=1):
 		super().__init__(name=name, gl_type=gl_type, shape=shape)
 		self.location = location
@@ -97,14 +120,28 @@ class VertexAttribute(GLSLVar):
 
 	@property
 	def type_indices(self):
+		'''The number of vertex attribute indices that would be taken up by the attribute if it
+		consisted of only one array element
+		'''
 		return gl_type_indices[self.type]
 	
 	@property
 	def indices(self):
+		'''The total number of vertex attribute indices taken up by the attribute.'''
 		return self.type_indices * product(self.shape)
 	
 	@property
 	def data(self):
+		'''The data track in a buffer backing this vertex attribute.
+
+		.. admonition:: |buffer-bind|
+
+		   Setting to this property binds the buffer that contains the track being assigned
+
+		.. admonition:: |vao-bind|
+
+		   Setting to this property binds the VAO that contains the attribute being assigned to
+		'''
 		raise NotImplementedError("Vertex Attribute data access not implemented.")
 	
 	@data.setter
@@ -123,9 +160,22 @@ class VertexAttribute(GLSLVar):
 		self.track.pointers.add(self)
 
 SubBuffer = namedtuple("SubBuffer", ["offset", "nbytes"])
+# CONTINUE HERE: Get rid of this? Perhaps update tracks directly and then add a refresh method?
 VertexFormat = namedtuple("VertexFormat", ["dtype", "offset", "components", "stride"])
 
 class VertexDataTrack:
+	'''A single interleaved track in a VertexDataBlock. This class keeps track of which
+	VertexAttributes reference it, and update them whenever its data format is changed. Should not
+	be instantiated directly, but instead referenced through its parent block.
+
+	:param block: The block containing this track
+	:type block: :py:class:`.VertexDataBlock`
+	:param dtype: The dtype of the data in this track
+	:type dtype: :py:class:`numpy.dtype` or :py:obj:`None`
+	:param int components: The number of components specified in this data track.
+	:param int indices: The number of vertex attribute indices specified in this data track.
+	:param bool normalize: Whether to normalize integer data into the [0,1] range
+	'''
 	gl_type_components = {data_type: 1 for data_type in data_types}
 	gl_type_components.update({ "{}vec{}".format(prefix, size): size for prefix, size
 	                         in cartesian(prefixes.values(), vector_sizes) })
@@ -139,8 +189,8 @@ class VertexDataTrack:
 		self.offset = offset
 		self.dtype = dtype
 		self.components = components
-		self.normalize = normalize
 		self.indices = indices
+		self.normalize = normalize
 
 		self.pointers = set()
 	
@@ -165,6 +215,17 @@ class VertexDataTrack:
 		return "{}(block={}, offset={})".format(type(self).__name, self.block, self.offset)
 	
 class VertexDataBlock:
+	'''This class describes a contiguous block of a buffer, consisting of multiple interleaved
+	:py:class:`.VertexDataTrack`. Should not be instantiated directly, but instead accessed through
+	its parent buffer.
+
+	:param buf: The buffer this block belongs to.
+	:type buf: :py:class:`.VertexBuffer`
+	:param contents: The vertex attributes this block describes.  One track will be created for each
+		attribute.
+	:type contents: :py:class:`.GLSLType`
+	:param location: The location of this block in the buffer passed in ``buf``
+	'''
 	def __init__(self, buf, *contents, location=(None, None)):
 		self.buf = buf
 		self.location = SubBuffer(*location)
@@ -181,6 +242,16 @@ class VertexDataBlock:
 		raise NotImplementedError("Vertex Buffer access is not yet implemented.")
 
 	def cast(self, dtype):
+		'''Generate a new dtype based on the block's contents and a passed dtype.
+
+		:param numpy.dtype dtype: the dtype to use as a base
+		:raises ValueError: if ``dtype`` is a simple dtype and not a valid OpenGL type
+		:raises ValueError: if ``dtype`` is a record dtype containing types that are not valid
+			OpenGL types
+		:raises ValueError: if ``dtype`` is a record dtype with a length not equal to the number of
+			tracks in the block
+		'''
+
 		if len(dtype) == 0:
 			if dtype.base.base not in gl_types:
 				raise ValueError("Invalid data type for a vertex attribute.")
@@ -198,6 +269,27 @@ class VertexDataBlock:
 		return numpy.dtype(new_dtype)
 
 	def __setitem__(self, i, value):
+		'''Set vertices described by the data block. All attributes contained in the block must be
+		specified.
+
+		:param i: The section of the block to be set, in vertex indices
+		:type i: :py:obj:`slice` or :py:obj:`int` or :py:obj:`Ellipsis`
+		:param numpy.ndarray value: The new data for the block
+		:raises RuntimeError: if the block is set to before its location is defined (e.g. by setting
+			the contents of the entire VertexBuffer
+		:raises IndexError: if ``i`` does not represent a contiguous section of the buffer.
+		:raises ValueError: if the length of ``i`` does not match the length of ``value``
+		:raises ValueError: if a section of the buffer is being set to a different dtype than the
+			rest
+
+		.. admonition |buffer-bind|
+
+		   Setting to a data block binds the buffer it belongs to.
+
+		.. admonition |vao-bind|
+
+		   Setting to a data block binds all of the VAOs that reference its contents.
+		'''
 		if None in self.location:
 			raise RuntimeError("Cannot set a buffer block before it's location has been defined.")
 
@@ -243,7 +335,16 @@ class VertexDataBlock:
 				track.setFormat(VertexFormat(dt.base, offset + self.location.offset, dt.shape[-1], self.stride))
 
 class VertexBuffer(Buffer):
+	'''A buffer that contains vertex data. A buffer contains one or more VertexDataBlocks, each of
+	which contains one or more VertexDataTracks of interleaved vertex data.
+
+	:param contents: The vertex attributes to be stored in this buffer, grouped into blocks. Single
+		attributes will be assigned to their own block.
+	:type contents: :py:class:`.GLSLType` or [:py:class:`.GLSLType`]
+	'''
+
 	target = GL.GL_ARRAY_BUFFER
+	'''This buffer binds to ``GL.GL_ARRAY_BUFFER``'''
 
 	def __init__(self, *contents, usage=GL.GL_DYNAMIC_DRAW, handle=None):
 		super().__init__(usage, handle)
@@ -255,12 +356,28 @@ class VertexBuffer(Buffer):
 				self.blocks.append(VertexDataBlock(self, c))
 
 	def __len__(self):
+		'''Returns the number of vertices described in the smallest data block
+		contained in this buffer
+		'''
 		return min(len(c) for c in self.blocks)
 
 	def __getitem__(self, i):
 		raise NotImplementedError("Vertex buffer access is not yet implemented.")
 
 	def __setitem__(self, i, values):
+		'''Set the contents of this vertex buffer. Currently, only setting the
+		whole buffer (``i == Ellipsis``) is implemented.
+
+		:param Ellipsis i: The section of the buffer to be set. If Ellipsis
+			(``...``) is passed, the buffer will be resized to fit the data.
+		:param value: The new data for the buffer. Must be an
+			iterable of the same length as the number of blocks being set.
+		:type value: [:py:class:`numpy.ndarray`]
+
+		.. admonition:: |buffer-bind|
+
+		   This method binds the buffer being set to.
+		'''
 		if i is Ellipsis:
 			tmp = numpy.empty(sum(v.nbytes for v in values), dtype='bytes')
 
@@ -288,7 +405,10 @@ class VertexBuffer(Buffer):
 			raise NotImplementedError("Setting whole buffer subsets is not yet implemented.")
 	
 class ElementBuffer(Buffer):
+	'''An element array buffer for indexed drawing.'''
+
 	target = GL.GL_ELEMENT_ARRAY_BUFFER
+	'''This buffer binds to ``GL.GL_ELEMENT_ARRAY_BUFFER``'''
 	def __init__(self, usage=GL.GL_DYNAMIC_DRAW, handle=None):
 		super().__init__(usage, handle)
 		self.dtype = None
@@ -298,11 +418,25 @@ class ElementBuffer(Buffer):
 		return self.length
 
 	def __setitem__(self, i, values):
+		'''Set the contents of the array buffer.
+
+		:param i: The buffer slice to be set, if it is :py:obj:`Ellipsis`, the buffer will be
+			resized to fit the data.
+		:type i: :py:obj:`slice` or :py:obj:`int` or :py:obj:`Ellipsis`
+		:param numpy.ndarray values: The data for the buffer.
+		:raises ValueError: If the new data is not an integer type compatible with OpenGL
+
+		.. admonition:: |buffer-bind|
+
+		   This method binds the buffer it belongs to.
+		'''
 		if gl_types[values.dtype] not in gl_integer_types:
 			raise ValueError("Array dtype '{}' is not a valid dtype for an element buffer".format(values.dtype))
 		values.shape = (-1,)
 		if i is not Ellipsis:
-			i = slice(*(s * self.dtype.itemsize for s in i.indices()))
+			i = i if isinstance(i, slice) else slice(i, i + 1)
+			i = range(*i.indices(len(self)))
+			i = range(i.start * self.dtype.itemsize, i.stop * self.dtype.itemsize)
 		self.bytes[i] = values
 		self.length = len(values)
 		self.dtype = values.dtype

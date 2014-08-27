@@ -58,6 +58,11 @@ for size1, size2 in cartesian(vector_sizes, repeat=2):
 
 # TODO: Add shortcut to set multiple uniforms in program object
 class UniformAttribute(GLSLVar):
+	'''A uniform attribute bound to a program
+
+	:param program: The program the attribute is bound to.
+	:type program: :py:class:`.Program`
+	'''
 	def __init__(self, program, name, gl_type, shape=1):
 		super().__init__(name=name, gl_type=gl_type, shape=shape)
 		self.program = program
@@ -65,6 +70,13 @@ class UniformAttribute(GLSLVar):
 	
 	@classmethod
 	def fromGLSLVar(cls, program, var):
+		'''Construct from a :py:class:`.Program` and :py:class:`.GLSLVar`
+
+		:param var: The variable the attribute is based on
+		:type var: :py:class:`.GLSLVar`
+		:param program: The program containing the attribute
+		:type program: :py:class:`.Program`
+		'''
 		return cls(program, name=var.name, gl_type=var.type, shape=var.shape)
 	
 	def __str__(self):
@@ -76,14 +88,26 @@ class UniformAttribute(GLSLVar):
 	
 	@property
 	def setter(self):
+		'''The OpenGL function used to set a uniform attribute of this type'''
 		return setter_functions[self.type]
 	
 	@property
 	def getter(self):
+		'''The OpenGL function used to read a uniform attribute of this type'''
 		return getter_functions[self.type]
 	
 	@property
 	def data(self):
+		'''A property for access to the value of the attribute.
+
+		:raises RuntimeError: On attempting to *read* an attribute that does not exist within the
+			program (i.e. has a location of ``-1``). *Writing* to such an attribute is allowed (but
+			will have no effect).
+
+		.. admonition |program-bind|
+
+		   Setting a uniform attribute binds the program that contains it.
+		'''
 		if self.location == -1:
 			raise RuntimeError("'{}' is not a uniform attribute of {}'".format(self, self.program))
 		out_buf = numpy.empty(self.shape, dtype=self.dtype)
@@ -116,8 +140,9 @@ def glGetActiveUniformsiv(program, indices, pname):
 	GL.glGetActiveUniformsiv(program, len(indices), indices, pname, out_array)
 	return [i for i in out_array]
 
-# FIXME: Track layout (row/column major)
+# TODO: Track layout (row/column major)
 class UniformBlock:
+	''' '''
 	def __init__(self, binding, program, name, *members, instance_name=None, shape=1):
 		self.name = name
 		self.program = program
@@ -160,7 +185,15 @@ class UniformBlockMember(GLSLVar):
 		return cls(index, offset, block, var.name, var.type, var.shape)
 
 class UniformBuffer(Buffer):
+	'''A buffer containing uniform data. May contain data for one or more uniform blocks.
+
+	:param contents: The uniform blocks backed by this buffer
+	:type contents: [:py:class:`.UniformBlock`]
+	'''
+
+	# UPSTREAM: Docstring currently invisible due to Sphinx Issue #1547
 	target = GL.GL_UNIFORM_BUFFER
+	'''This buffer binds GL.GL_UNIFORM_BUFFER'''
 
 	def __init__(self, *contents, usage=GL.GL_DYNAMIC_DRAW, handle=None):
 		super().__init__(usage, handle)
@@ -173,28 +206,56 @@ class UniformBuffer(Buffer):
 			for block, data in zip(contents, self.blocks):
 				GL.glBindBufferRange(self.target, block.binding, self.handle, data.offset, block.nbytes)
 	
-	# TODO: Add __setitem__
+	#TODO: Add __setitem__
 
 class UniformBlockData:
-	def __init__(self, buf, offset, dtype, *members, shape=1):
+	'''A class to represent the storage of one block in a UniformBuffer
+
+	:param buf: The buffer containing the block
+	:type buf: :py:class:`.UniformBuffer`
+	:param int offset: The offset of the block within the buffer
+	:param members: The members of the block
+	:type members: :py:class:`.BlockMember`
+	'''
+	def __init__(self, buf, offset, *members, shape=1):
 		self.buf = buf
 		self.offset = offset
 		self.members = [UniformBlockMemberData.fromUniformBlockMember(self, m) for m in members]
-		self.dtype = dtype
 		self.shape = shape
 	
 	@classmethod
 	def fromUniformBlock(cls, buf, offset, blk):
-		return cls(buf, offset, blk.dtype, *blk.members, shape=blk.shape)
+		'''Construct from a :py:class:`.UniformBlock`
+
+		:param buf: The buffer containing the block
+		:type buf: :py:class:`.UniformBuffer`
+		:param int offset: The offset of the block within the buffer
+		:param block: The uniform block to be stored
+		:type block: :py:class:`.UniformBlock`
+		'''
+		return cls(buf, offset, *blk.members, shape=blk.shape)
+
+	@property
+	def dtype(self):
+		'''The dtype of one element in the uniform block'''
+		return numpy.dtype([('', m.dtype, m.shape) for m in self.members])
 	
 	@property
 	def nbytes(self):
-		return self.dtype.itemsize
+		'''The total number of bytes required to store all elements of this uniform block'''
+		return self.dtype.itemsize * product(self.shape)
 	
 	def __getitem__(self, idx):
 		raise NotImplementedError("Uniform Block data access not implemented.")
 	
 	def __setitem__(self, idxs, value):
+		'''Set components of the uniform block
+
+		:param idxs: The section of the block to be set. Last index refers to the members of the
+			block, all others refer to blocks within an array of blocks
+		:param value: The new data for the selected block members
+		:raises IndexError: On attempts to set non-contiguous buffer sections
+		'''
 		value = numpy.asarray(value)
 
 		if all(s == 1 for s in self.shape):

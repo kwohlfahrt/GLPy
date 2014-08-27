@@ -12,12 +12,12 @@ Empty.__doc__ = """A class to represent an empty buffer
                 :param int nbytes: Size of the empty buffer"""
 
 class Buffer:
-	"""An OpenGL buffer. Needs to be sub-classed and define the ``target``
-	property for use.
+	"""An OpenGL buffer. Needs to be sub-classed and define the ``target`` property for use.
 
 	:keyword usage: The intended usage of the buffer.
 	:keyword handle: The buffer handle. One will be created if it is not provided.
-	:type handle: int or None"""
+	:type handle: :py:obj:`int` or :py:obj:`None`
+	"""
 
 	def __init__(self, usage=GL.GL_DYNAMIC_DRAW, handle=None):
 		self.usage = usage
@@ -47,13 +47,20 @@ class Buffer:
 			GL.glBindBuffer(self.target, 0)
 
 class BufferBytes(Buffer):
-	"""A class used to represent the internal storage of a buffer object.
-	Should not be instantiated directly."""
+	"""A class used to represent the internal storage of a buffer object.  Should not be
+	instantiated directly.
+	"""
+
 	def __init__(self, buf):
 		self.buf = buf
 		self.nbytes = None
 	
 	def __len__(self):
+		"""The length of the buffer.
+
+		:return: The length of the buffer (in bytes), or :py:obj:`None` if it is not allocated
+		:rtype: :py:obj:`int` or :py:obj:`None`
+		"""
 		return self.nbytes
 	
 	def __getitem__(self, i):
@@ -62,11 +69,14 @@ class BufferBytes(Buffer):
 	def __setitem__(self, i, value):
 		"""Set the buffer data or sub-data.
 
-		:param i: Section of the buffer to set, in bytes. Passing ``Ellipsis``
-		          (``...``) will resize the buffer to fit the data
-		:type i: slice or Ellipsis
+		:param i: Section of the buffer to set, in bytes. Passing :py:obj:`Ellipsis` will resize the
+			buffer to fit the data
+		:type i: :py:obj:`slice` or :py:obj:`int` or :py:obj:`Ellipsis`
 		:param value: New data
-		:raises IndexError: IndexError will be raised if ``i.step`` is not ``0`` or ``None``
+		:type value: :py:class:`numpy.ndarray` or :py:class:`.Empty`
+		:raises IndexError: IndexError will be raised if ``i`` does not represent a contiguous
+			buffer section
+		:raises ValueError: ValueError will be raised if ``value`` is larger than the slice ``i``
 
 		.. admonition:: |buffer-bind|
 		

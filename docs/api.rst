@@ -1,18 +1,9 @@
 API
 +++
 
-.. automodule:: GLPy
+This section documents the API of the module.
 
-.. autoclass:: GLPy.buffers.Buffer
-   :members:
-   :special-members: __enter__
+.. toctree::
+   :glob:
 
-.. autoclass:: GLPy.buffers.Empty
-
-.. autoclass:: GLPy.program.Program
-   :members:
-   :special-members: __enter__
-
-.. autoclass:: GLPy.texture.ImmutableTexture
-   :members:
-   :special-members: __enter__, __setitem__
+   api/*

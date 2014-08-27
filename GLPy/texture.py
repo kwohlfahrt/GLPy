@@ -35,11 +35,12 @@ class ImmutableTexture:
 	created with an explicit size, type and number of mipmap levels, and cannot
 	be resized.
 	
-	:param [int] size: The size of the texture
+	:param size: The size of the texture
+	:type size: [:py:obj:`int`]
 	:param int components: Number of components per pixel
 	:param count: Number of slices (will create an array texture if this is not
 		None)
-	:type count: int or None
+	:type count: :py:obj:`int` or :py:obj:`None`
 	:param int levels: Number of mipmap levels. Only ``1`` is currently
 		supported.
 	:param int bits: Bits per pixel
@@ -47,8 +48,8 @@ class ImmutableTexture:
 	:param bool normalized: Create a normalized texture (if integer)
 	:param bool signed: Create a signed texture (if integer)
 	:param handle: The OpenGL handle to use for the texture
-	:type handle: int or None
-	:param \*\*tex_params: The texture parameters to be set'''
+	:type handle: :py:obj:`int` or :py:obj:`None`
+	:param tex_params: The texture parameters to be set'''
 
 	def __init__(self, size, components=4, count=None, levels=1
 	            , bits=8, integer=True, normalized=True, signed=False
@@ -128,22 +129,24 @@ class ImmutableTexture:
 		"""Set the image data. The behaviour changes depending on how many
 		indices are provided and the type of the texture:
 
-		- Equal to the number of dimensions: All components and array elements
-		  are set.
+		- Equal to the number of dimensions: All components and array elements are set.
 		- One greater than the number of dimensions:
 			- Array texture: The first index defines which array elements are set
 			- Simple texture: The last index defines which components are set
-		- Two greater than the number of dimensions: The first index defines
-		  which array elements are set, the last index defines which components
-		  are set.
+		- Two greater than the number of dimensions: The first index defines which array elements
+		  are set, the last index defines which components are set.
 
-		:param idxs: The indices to be set.
-		:param value: The new image data."""
-		value = numpy.asarray(value)
-		idxs = [idx if isinstance(idx, slice) else slice(idx, idx+1) for idx in idxs]
-		if any(idx.step is not None for idx in idxs):
-			raise IndexError("Cannot set discontinuous sections of a texture.")
+		:param idxs: The indices to be set
+		:param value: The new image data
+		:raises IndexError: If the number of indices is not between the number of texture dimensions
+			and the number of texture dimenions + 2
+		:raises IndexError: If the component selection is not supported by OpenGL pixel transfers
+		:raises IndexError: On attempts to write beyound the bounds of a texture array
 
+		.. admonition:: |texture-bind|
+
+		  This method binds the texture it belongs to
+		"""
 		value = numpy.asarray(value)
 		tex_count = 1 if self.count is None else self.count
 		level = 0 # TODO: Support for setting mipmap levels
@@ -193,14 +196,14 @@ class ImmutableTexture:
 	def activate(self, *units):
 		'''Binds the texture to the specified image units.
 
+		:param int units: The image units to bind to
+		:raises ValueError: if it is attempted to bind a texture to ``GL_TEXTURE0``. This unit is
+			reserved to permit safe unbinding of the texture from its target.
+
 		.. admonition:: |texture-bind|
 
 		  This method binds the texture it belongs to
-
-		:param int \*units: The image units to bind to.
-		:raises ValueError: if it is attempted to bind a texture to
-			``GL_TEXTURE0``. This unit is reserved to permit safe unbinding of
-			the texture from its target.'''
+		'''
 
 		if any(u <= 0 for u in units):
 			raise ValueError("Cannot bind to texture units under 1.")

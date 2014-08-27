@@ -15,14 +15,8 @@ SHADER_TYPES = { 'vertex': GL.GL_VERTEX_SHADER
                , 'tesselation evaluation': GL.GL_TESS_EVALUATION_SHADER }
 
 class Program:
-	"""An OpenGL program.
+	"""An OpenGL program."""
 
-	.. _program-bind-warning:
-	.. warning::
-	   It is not allowed to bind one program while another is bound.  It is
-	   allowed to bind the same program multiple times.
-	   
-	   Methods that bind a program will be documented."""
 
 	def __init__(self, sources, attributes=None, uniforms=None, shared_uniforms=None):
 		attributes = attributes or []
@@ -57,6 +51,17 @@ class Program:
 		self.uniforms = {u.name: UniformAttribute.fromGLSLVar(self, u) for u in uniforms}
 	
 	def __enter__(self):
+		'''Program provide a context manager that keep track of how many times the program has been
+		bound and unbound. Grouping operations on a program within a context where it is bound
+		reduce unnecessary binding and unbinding.
+
+		.. _program-bind-warning:
+		.. warning::
+		   It is not allowed to bind one program while another is bound.  It is allowed to bind the
+		   same program multiple times.
+		   
+		   Methods that bind a program will be documented.
+		'''
 		if not self.bound:
 			GL.glUseProgram(self.handle)
 		self.bound += 1

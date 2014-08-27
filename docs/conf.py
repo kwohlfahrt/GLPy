@@ -15,6 +15,8 @@ pygments_style = 'sphinx'
 
 #html_theme_options = {'github_fork': 'kwohlfahrt/GLPy'}
 
+autodoc_member_order = 'bysource'
+
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
@@ -29,10 +31,13 @@ man_pages = [
      ['Kai Wohlfahrt'], 1)
 ]
 
-intersphinx_mapping = {'python3': ('http://docs.python.org/3.4/', None),}
+intersphinx_mapping = {'python3': ('http://docs.python.org/3.4/', None)
+                      ,'numpy': ('http://docs.scipy.org/doc/numpy/', None)}
 
 rst_epilog = '''
 .. |buffer-bind| replace:: :ref:`Binds a buffer <buffer-bind-warning>`
 .. |texture-bind| replace:: :ref:`Binds a texture <texture-bind-warning>`
+.. |vao-bind| replace:: :ref:`Binds a Vertex Array Object <vao-bind-warning>`
+.. |program-bind| replace:: :ref:`Binds a program <program-bind-warning>`
 .. _PyOpenGL: http://pyopengl.sourceforge.net/
 '''
