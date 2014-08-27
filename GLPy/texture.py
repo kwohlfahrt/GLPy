@@ -26,6 +26,10 @@ set_texture.update({getattr(GL, 'GL_TEXTURE_{}D_ARRAY'.format(d)):
                     getattr(GL, 'glTexImage{}D'.format(d + 1))
                     for d in range(1, 3)})
 
+pixel_components = {range(i, i+1): '_'.join(('GL', n))
+                    for i, n in enumerate(['RED', 'GREEN', 'BLUE'])}
+pixel_components.update({range(i): '_'.join(('GL', 'RGBA'[:i])) for i in range(2,5)})
+
 class ImmutableTexture:
 	'''A class for textures (using immutable storage). These textures are
 	created with an explicit size, type and number of mipmap levels, and cannot
@@ -140,7 +144,9 @@ class ImmutableTexture:
 		if any(idx.step is not None for idx in idxs):
 			raise IndexError("Cannot set discontinuous sections of a texture.")
 
+		value = numpy.asarray(value)
 		tex_count = 1 if self.count is None else self.count
+		level = 0 # TODO: Support for setting mipmap levels
 
 		if len(idxs) == len(self.size):
 			count = slice(None, tex_count)
@@ -162,36 +168,22 @@ class ImmutableTexture:
 		else:
 			raise IndexError("Incorrect number of indices.")
 
-		# FIXME: RED, GREEN and BLUE are all valid set components
-		components = slice(*components.indices(self.components))
-		if components.start != 0:
-			raise IndexError("Can only set components starting from 0.")
-		if components.stop == 0:
-			return
-		if components.stop > self.components:
-			raise IndexError("Cannot set more components than the texture has.")
-		value.dtype = numpy.dtype(value.dtype.base, components.stop)
-
-		count = slice(*count.indices(tex_count))
-		for i, (s, size_dim) in enumerate(zip(size, self.size)):
-			size[i] = slice(*s.indices(size_dim))
-		if count.start < 0:
-			raise IndexError("Cannot set before start of array.")
-		if count.stop > tex_count:
-			raise IndexError("Cannot set beyond end of array.")
-		new_shape = [count.stop - count.start] + [s.stop - s.start for s in size]
-		if any(s <= 0 for s in new_shape):
-			return
-		value.shape = new_shape if tex_count > 1 else new_shape[1:]
-
-		if self.integer and not self.normalized:
-			value_format = '_'.join(('GL', 'RED' if components.stop == 1 else 'RGBA'[components], 'INTEGER'))
-		else:
-			value_format = '_'.join(('GL', 'RED' if components.stop == 1 else 'RGBA'[components]))
-			
-		value_format = getattr(GL, value_format)
+		components = range(*components.indices(self.components))
+		value.dtype = numpy.dtype(value.dtype.base, len(components))
 		value_type = gl_types[value.dtype.base]
-		level = 0
+
+		try:
+			value_format = pixel_components[components]
+		except KeyError as e:
+			raise IndexError("Invalid component selection: {}".format(components)) from e
+		if self.integer and not self.normalized:
+			value_format = '_'.join((value_format, 'INTEGER'))
+		value_format = getattr(GL, value_format)
+
+		count = range(*count.indices(tex_count))
+		size = [range(*s.indices(size_dim)) for s, size_dim in zip(size, self.size)]
+		new_shape = [count.stop - count.start] + [s.stop - s.start for s in size]
+		value.shape = new_shape if tex_count > 1 else new_shape[1:]
 
 		# UPSTREAM: PyOpenGL functions do not take keyword arguments
 		args = tuple(i.start for i in reversed(size)) + value.shape[::-1] + (value_format, value_type, value)
