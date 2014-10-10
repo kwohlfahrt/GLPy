@@ -13,6 +13,8 @@ class ContextTest(unittest.TestCase):
 	def setUp(self):
 		self.window_size = (400, 400)
 		GLUT.glutInit()
+		GLUT.glutInitContextVersion(3, 3)
+		GLUT.glutInitContextProfile(GLUT.GLUT_CORE_PROFILE)
 		GLUT.glutInitDisplayMode(GLUT.GLUT_RGBA)
 		GLUT.glutInitWindowSize(*self.window_size)
 		self.window = GLUT.glutCreateWindow("GLPy Test")

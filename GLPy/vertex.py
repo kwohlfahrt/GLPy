@@ -7,7 +7,7 @@ from .datatypes import GLSLVar, GLSLType
 from .datatypes import gl_types, gl_integer_types, data_types, prefixes, vector_sizes
 from .buffers import Buffer
 
-from util.misc import equal, product, subIter
+from util.misc import product, subIter
 
 import numpy
 

@@ -90,6 +90,8 @@ example, we will use ``GLUT`` to create one.
 
    GLUT.glutInit()
    GLUT.glutInitDisplayMode(GLUT.GLUT_RGBA)
+   GLUT.glutInitContextVersion(3, 3)
+   GLUT.glutInitContextProfile(GLUT.GLUT_CORE_PROFILE)
    window_size = (400, 400)
    GLUT.glutInitWindowSize(window_size[0], window_size[1])
    GLUT.glutCreateWindow("GLPy")
