@@ -131,7 +131,6 @@ def glGetUniformIndices(program, uniform_names):
 
 	uniform_indices = numpy.empty(len(uniform_names), dtype=GLuint)
 	GL.glGetUniformIndices(program, len(uniform_names), c_uniform_names, uniform_indices)
-
 	return uniform_indices
 
 def glGetActiveUniformsiv(program, indices, pname):
@@ -142,7 +141,18 @@ def glGetActiveUniformsiv(program, indices, pname):
 
 # TODO: Track layout (row/column major)
 class UniformBlock:
-	''' '''
+	'''An OpenGL Uniform Block.
+
+	:param program: The program this block is in
+	:type program: :py:class:`.Program`
+	:param string name: The name of the uniform block
+	:param \\*members: The members of the uniform block
+	:type \\*members: [:py:class:`.GLSLVar`]
+	:param instance_name: The name of the instance of this block
+	:type instance_name: :py:obj:`string` or :py:obj:`None`
+	:param shape: The dimensions of the uniform block
+	:type shape: :py:obj:`int` or [:py:obj:`int`]
+	'''
 	def __init__(self, binding, program, name, *members, instance_name=None, shape=1):
 		self.name = name
 		self.program = program
@@ -162,7 +172,7 @@ class UniformBlock:
 		member_indices = glGetUniformIndices(self.program.handle, [m.api_name for m in members])
 		member_offsets = glGetActiveUniformsiv(self.program.handle, member_indices, GL.GL_UNIFORM_OFFSET)
 
-		self.members = [UniformBlockMember.fromGLSLVar(i, o, self, m) for i, o, m
+		self.members = [UniformBlockMember.fromBlockMember(i, o, m) for i, o, m
 		                in zip(member_indices, member_offsets, members)]
 
 	def __str__(self):
@@ -173,16 +183,16 @@ class UniformBlock:
 	def dtype(self):
 		return numpy.dtype([('', m.dtype, m.shape) for m in self.members])
 
-class UniformBlockMember(GLSLVar):
+# Should not be instantiated directly
+class UniformBlockMember(BlockMember):
 	def __init__(self, index, offset, block, name, gl_type, shape=1):
-		super().__init__(name, gl_type, shape)
-		self.block = block
+		super().__init__(block, name, gl_type, shape)
 		self.index = index
 		self.offset = offset
 	
 	@classmethod
-	def fromGLSLVar(cls, index, offset, block, var):
-		return cls(index, offset, block, var.name, var.type, var.shape)
+	def fromBlockMember(cls, index, offset, var):
+		return cls(index, offset, var.block, var.name, var.type, var.shape)
 
 class UniformBuffer(Buffer):
 	'''A buffer containing uniform data. May contain data for one or more uniform blocks.
