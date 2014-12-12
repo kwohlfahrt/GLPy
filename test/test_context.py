@@ -7,7 +7,7 @@ from OpenGL import GLUT, GL
 import numpy
 from numpy.testing import assert_array_equal
 
-from GLPy import Program, GLSLVar, GLSLType, VAO, VertexBuffer, UniformBlock, UniformBuffer, ImmutableTexture
+from GLPy import Program, Variable, Type, VAO, VertexBuffer, UniformBlock, UniformBuffer, ImmutableTexture
 
 class ContextTest(unittest.TestCase):
 	def setUp(self):
@@ -54,9 +54,9 @@ class UniformTest(unittest.TestCase):
 		               , 'fragment': 'compile.frag' }
 		shaders = readShaders(**shader_files)
 
-		uniforms = [ GLSLVar('xform', 'mat4', 1)
-		           , GLSLVar('origin', 'bool', 1)
-				   , GLSLVar('is', 'int', 3) ]
+		uniforms = [ Variable('xform', 'mat4', 1)
+		           , Variable('origin', 'bool', 1)
+		           , Variable('is', 'int', 3) ]
 		ContextTest.setUp(self)
 		self.program = Program(shaders, uniforms=uniforms)
 
@@ -71,7 +71,7 @@ class UniformTest(unittest.TestCase):
 	def test_matrix(self):
 		assert_array_equal( self.program.uniforms['xform'].data
 		                  , numpy.identity(4))
-		new_xform = numpy.arange(16)
+		new_xform = numpy.arange(16, dtype='float32')
 		new_xform.shape = (4, 4)
 		self.program.uniforms['xform'].data = new_xform
 		assert_array_equal( self.program.uniforms['xform'].data
@@ -88,7 +88,7 @@ class UniformTest(unittest.TestCase):
 		shader_files = { 'vertex': 'uniform.vert'
 		               , 'fragment': 'compile.frag' }
 		shaders = readShaders(**shader_files)
-		uniforms = [GLSLVar('xform', 'mat4', 1), GLSLVar('foobar', 'vec3', 1)]
+		uniforms = [Variable('xform', 'mat4', 1), Variable('foobar', 'vec3', 1)]
 
 		program = Program(shaders, uniforms=uniforms)
 
@@ -98,8 +98,8 @@ class UniformTest(unittest.TestCase):
 # TODO: Test matrix vertex attributes
 class VertexBufferTest(unittest.TestCase):
 	def setUp(self):
-		self.buffer_contents = [ GLSLType('vec3')
-		                       , GLSLType('vec3') ]
+		self.buffer_contents = [ Type('vec3')
+		                       , Type('vec3') ]
 		ContextTest.setUp(self)
 
 	def tearDown(self):
@@ -109,7 +109,7 @@ class VertexBufferTest(unittest.TestCase):
 		pass
 	
 	def test_simple_buffer(self):
-		buf = VertexBuffer(GLSLType('vec3'))
+		buf = VertexBuffer(Type('vec3'))
 		data = numpy.array([[1, 1, 1], [1, 2, 3], [1, 2, 1]], dtype='float32')
 		buf[...] = data,
 		self.assertEqual(len(buf), 3)
@@ -122,7 +122,7 @@ class VertexBufferTest(unittest.TestCase):
 			buf.blocks[0][:] = data
 	
 	def test_struct_buffer(self):
-		buf = VertexBuffer([GLSLType('vec3'), GLSLType('float')])
+		buf = VertexBuffer([Type('vec3'), Type('float')])
 		dt = numpy.dtype([('', 'float32', 3), ('', 'float32', 1)])
 		data = numpy.array([([1, 1, 1], 3)
 		                   ,([1, 2, 3], 0)
@@ -143,7 +143,7 @@ class VertexBufferTest(unittest.TestCase):
 			buf.blocks[0][...] = data
 
 	def test_array_struct_buffer(self):
-		buf = VertexBuffer([GLSLType('vec3'), GLSLType('float', shape=(2,))])
+		buf = VertexBuffer([Type('vec3'), Type('float', shape=(2,))])
 		dt = numpy.dtype([('', 'float32', 3), ('', 'float32', 2)])
 		data = numpy.array([([1, 1, 1], [3, 4])
 		                   ,([1, 2, 3], [0, 3])
@@ -160,8 +160,8 @@ class VertexAttributeTest(unittest.TestCase):
 		               , 'fragment': 'vertices.frag' }
 		shaders = readShaders(**shader_files)
 
-		vertex_attributes = [ GLSLVar('position', 'vec4')
-							, GLSLVar('color', 'vec3') ]
+		vertex_attributes = [ Variable('position', 'vec4')
+							, Variable('color', 'vec3') ]
 
 		ContextTest.setUp(self)
 		self.vao = VAO(*vertex_attributes)
@@ -171,7 +171,7 @@ class VertexAttributeTest(unittest.TestCase):
 		ContextTest.tearDown(self)
 	
 	def test_position(self):
-		buf = VertexBuffer(GLSLType('vec3'))
+		buf = VertexBuffer(Type('vec3'))
 		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
 		buf[...] = data
 		self.vao[0].data = buf.blocks[0].tracks[0]
@@ -182,13 +182,11 @@ class UniformBlockTest(unittest.TestCase):
 		               , 'fragment': 'compile.frag' }
 		shaders = readShaders(**shader_files)
 
-		uniforms = [ GLSLVar('xform', 'mat4', 1)
-		           , GLSLVar('origin', 'bool', 1) ]
+		uniforms = [ Variable('xform', 'mat4', 1)
+		           , Variable('origin', 'bool', 1) ]
 		ContextTest.setUp(self)
 		self.program = Program(shaders)
-		self.uniform_block = UniformBlock(1, self.program
-		                                 , "Projection"
-										 , *uniforms)
+		self.uniform_block = UniformBlock(self.program, 1, "Projection", *uniforms)
 
 	def tearDown(self):
 		ContextTest.tearDown(self)
@@ -258,14 +256,14 @@ class TextureTest(unittest.TestCase):
 		               , 'fragment': 'texture.frag' }
 		shaders = readShaders(**shader_files)
 
-		vertex_attributes = [ GLSLVar('position', 'vec4') ]
+		vertex_attributes = [ Variable('position', 'vec4') ]
 		vao = VAO(*vertex_attributes)
 
-		uniform_attributes = [ GLSLVar('tex', 'sampler2D') ]
+		uniform_attributes = [ Variable('tex', 'sampler2D') ]
 
 		program = Program(shaders, attributes=vao.attributes, uniforms=uniform_attributes)
 
-		buf = VertexBuffer(GLSLType('vec3'))
+		buf = VertexBuffer(Type('vec3'))
 		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
 		buf[...] = data
 		vao[0].data = buf.blocks[0].tracks[0]

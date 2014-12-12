@@ -1,71 +1,123 @@
 from OpenGL import GL
-from OpenGL.constants import GLboolean,GLint, GLuint, GLfloat
+from OpenGL.constants import GLboolean,GLint, GLuint, GLfloat, GLdouble
 from itertools import product as cartesian
 # TODO: dobule-based types
 
 from numpy import dtype
 
 from util.misc import product
+from enum import Enum
+
+class Scalar(Enum):
+	bool = 1
+	int = 2
+	uint = 3
+	float = 4
+	double = 5
+
+	__prefixes__ = { 'bool': 'b'
+	               , 'int': 'i'
+	               , 'uint': 'u'
+	               , 'float': ''
+	               , 'double': 'd' }
+
+	def __init__(self, value):
+		self.prefix = self.__prefixes__[self.name]
+		self.base_type = self
+
+floating_point_scalars = { Scalar.float, Scalar.double }
+
+sampler_dims = range(1, 4)
+sampler_data_types = {Scalar.float, Scalar.int, Scalar.uint}
+sampler_types = [ "{}sampler{}D".format(scalar_type.prefix, ndim)
+                  for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) ]
+class Sampler(Enum):
+	__sampler_ndim__ = { "{}sampler{}D".format(scalar_type.prefix, ndim): ndim
+	                     for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) }
+
+	def __init__(self, value):
+		self.ndim = self.sampler__ndim__[self.name]
+Sampler = Enum('Sampler', sampler_types)
 
 vector_sizes = range(2, 5)
-data_types = ['bool', 'int', 'uint', 'float']
-sampler_types = { '1D': GL.GL_TEXTURE_1D
-                , '2D': GL.GL_TEXTURE_2D
-				, '3D': GL.GL_TEXTURE_3D }
+vector_types = ["{}vec{}".format(scalar_type.prefix, size)
+                for scalar_type, size in cartesian(Scalar, vector_sizes) ]
+class Vector(Enum):
+	__base_types__ = { "{}vec{}".format(scalar_type.prefix, size): scalar_type
+	                    for scalar_type, size in cartesian(Scalar, vector_sizes) }
+	__shapes__ = { "{}vec{}".format(scalar_type.prefix, size): (size,)
+	              for scalar_type, size in cartesian(Scalar, vector_sizes) }
 
-prefixes = { 'bool': 'b'
-           , 'int': 'i'
-           , 'uint': 'u'
-           , 'float': '' }
+	def __init__(self, value):
+		self.base_type = self.__base_types__[self.name]
+		self.shape = self.__shapes__[self.name]
+Vector = Enum('Vector', vector_types, type=Vector)
 
-base_types = {d: d for d in data_types}
-base_types.update({ "{}vec{}".format(prefixes[data_type], size): base_types[data_type]
-                    for data_type, size in cartesian(data_types, vector_sizes) })
-base_types.update({ "mat{}".format(size): 'float'
-                    for size in vector_sizes })
-base_types.update({ "mat{}x{}".format(size1, size2): 'float'
-                    for size1, size2 in cartesian(vector_sizes, repeat=2) })
-base_types.update({ "{}sampler{}".format(data_type, sampler_type): 'int'
-                    for data_type, sampler_type in cartesian(['', 'i', 'u'], sampler_types)})
+matrix_types = ( ["{}mat{}".format(scalar_type.prefix, size)
+                  for scalar_type, size in cartesian(floating_point_scalars, vector_sizes)]
+               + ["{}mat{}x{}".format(scalar_type.prefix, size1, size2)
+                  for scalar_type, size1, size2
+                  in cartesian(floating_point_scalars, vector_sizes, vector_sizes)] )
+class Matrix(Enum):
+	__base_types__ = { "{}mat{}".format(scalar_type.prefix, size): scalar_type
+	                   for scalar_type, size in cartesian(floating_point_scalars, vector_sizes) }
+	__base_types__.update({ "{}mat{}x{}".format(scalar_type.prefix, size1, size2): scalar_type
+	                        for scalar_type, size1, size2
+	                        in cartesian(floating_point_scalars, vector_sizes, vector_sizes) })
 
-numpy_types = { 'bool': dtype('int32') # UPSTREAM: refuses to glGetUniform if GLboolean
-			  , 'int': dtype('int32')
-			  , 'uint': dtype('uint32')
-			  , 'float': dtype('float32') }
-numpy_types.update({ "{}vec{}".format(prefixes[data_type], size): dtype((numpy_types[data_type], size))
-					 for data_type, size in cartesian(data_types, vector_sizes) })
-numpy_types.update({ "mat{}".format(size): dtype((numpy_types['float'], (size, size)))
-					 for size in vector_sizes })
-numpy_types.update({ "mat{}".format(size1, size2): dtype((numpy_types['float'], (size1, size2)))
-					 for size1, size2 in cartesian(vector_sizes, repeat=2) })
+	__shapes__ = { "{}mat{}".format(scalar_type.prefix, size): (size, size)
+	              for scalar_type, size in cartesian(floating_point_scalars, vector_sizes) }
+	__shapes__.update({ "{}mat{}x{}".format(scalar_type.prefix, size1, size2): (size1, size2)
+	                   for scalar_type, size1, size2
+	                   in cartesian(floating_point_scalars, vector_sizes, vector_sizes) })
 
-buf_types = { GL.GL_BYTE: dtype('int8')
-            , GL.GL_UNSIGNED_BYTE: dtype('uint8')
-            , GL.GL_SHORT: dtype('int16')
-            , GL.GL_UNSIGNED_SHORT: dtype('uint16')
-            , GL.GL_INT: dtype('int32')
-            , GL.GL_UNSIGNED_INT: dtype('uint32')
-            , GL.GL_HALF_FLOAT: dtype('float16')
-            , GL.GL_FLOAT: dtype('float32')
-            , GL.GL_DOUBLE: dtype('float64') }
+	def __init__(self, value):
+		self.shape = self.__shapes__[self.name]
+		self.base_type = self.__base_types__[self.name]
 
-gl_types = {v: k for k, v in buf_types.items()}
-gl_integer_types = { GL.GL_BYTE, GL.GL_UNSIGNED_BYTE, GL.GL_SHORT, GL.GL_UNSIGNED_SHORT, GL.GL_INT, GL.GL_UNSIGNED_INT }
-gl_float_types = { GL.GL_HALF_FLOAT, GL.GL_FLOAT }
-gl_double_types = { GL.GL_DOUBLE }
+Matrix = Enum('Matrix', matrix_types, type=Matrix)
 
-class GLSLType:
-	'''A class to represent an OpenGL data type, not necessarily a named variable.
+glsl_types = [Scalar, Vector, Matrix, Sampler]
 
-	:param str gl_type: The OpenGL data type (e.g. ``vec3``)
+#gl_types = {v: k for k, v in buf_types.items()}
+
+class Struct:
+	'''A GLSL ``struct``
+
+	:param str name: The name of the struct
+	:param \\*contents: The contents of the struct
+	:type \\*contents: [:py:class:`.GLSLVar`]
+	'''
+	def __init__(self, name, *contents):
+		self.name = name
+		if not all(hasattr(c, base_type) for c in contents):
+			raise ValueError("Interface blocks may not contain opaque types.")
+		self.contents = contents
+
+	def __str__(self):
+		contents = '; '.join(str(c) for c in self.contents)
+		return "struct {} {{ {}; }}".format(self.name, contents)
+
+	def __repr__(self):
+		return "{}(name='{}' contents={})".format(type(self).__name__, self.name, self.contents)
+
+class Type:
+	'''OpenGL type, not necessarily a named variable.
+
+	:param gl_type: The OpenGL data type (e.g. ``vec3``)
+	:type gl_type: :py:class:`.BaseType` or :py:class:`.Struct`
 	:param shape: The shape of the data type if it is an array
 	:type shape: :py:obj:`int` or [:py:obj:`int`]
 	'''
 	def __init__(self, gl_type, shape=1):
-		# TODO: Use enums when Python-3.4 is stable
-		if gl_type not in base_types:
-			raise ValueError("Invalid OpenGL type: {}".format(repr(gl_type)))
-		self.type = gl_type
+		for glsl_type in glsl_types:
+			try:
+				self.type = glsl_type[gl_type]
+				break
+			except KeyError:
+				pass
+		else:
+			self.type = gl_type
 		try:
 			self.shape = tuple(shape)
 		except TypeError:
@@ -83,12 +135,7 @@ class GLSLType:
 		'''The total number of elements in the variable'''
 		return product(self.shape)
 
-	@property
-	def dtype(self):
-		'''The numpy dtype corresponding to one element of this variable'''
-		return numpy_types[self.type]
-
-class GLSLVar(GLSLType):
+class Variable(Type):
 	'''A class to represent a named OpenGL variable.
 
 	:param str name: The name of the OpenGL variable
@@ -102,12 +149,12 @@ class GLSLVar(GLSLType):
 		self.name = name
 
 	@classmethod
-	def fromGLSLType(cls, name, glsl_type):
-		'''Construct from a name and an instance of :py:class:`.GLSLType`
+	def fromType(cls, name, glsl_type):
+		'''Construct from a name and an instance of :py:class:`.Type`
 
 		:param str name: the name of the variable
 		:param glsl_type: The type of the variable
-		:type glsl_type: :py:class:`.GLSLType`
+		:type glsl_type: :py:class:`.Type`
 		'''
 		return cls(name, glsl_type.type, glsl_type.shape)
 
@@ -115,22 +162,71 @@ class GLSLVar(GLSLType):
 		array = ''.join("[{}]".format(s) for s in self.shape) if self.shape != (1,) else ""
 		return "{} {}{}".format(self.type, self.name, array)
 
-class BlockMember(GLSLVar):
+class BlockMemoryLayout(Enum):
+	shared = 1
+	packed = 2
+	std140 = 3
+	std430 = 4
+
+class MatrixMemoryLayout(Enum):
+	column_major = 1
+	row_major = 2
+
+# May have to separate out block and instance for different shader stages.
+class InterfaceBlock:
+	'''A generic interface block. Not to be instantiated directly, but as a
+	base for defined block types.
+	
+	:param str name: The name of the uniform block
+	:param \\*members: The members of the uniform block
+	:type \\*members: :py:class:`.Variable`
+	:param str instance_name: The name of the instance
+	:param shape: The shape of the variable. Requires an instance name if not `1`
+	:type shape: [:py:obj:`int`]
+	:param layout: The layout of the interface block'''
+
+	def __init__(self, name, *members, instance_name='', shape=1, layout='shared'):
+		self.name = name
+		self.members = [InterfaceBlockMember.fromVariable(self, m) for m in members]
+		self.instance_name = instance_name
+		try:
+			self.shape = tuple(shape)
+		except TypeError:
+			self.shape = (shape,)
+		if self.shape != (1,) and not self.instance_name:
+			raise ValueError("An interface block may only be an array if it has an instance name.")
+		self.layout = BlockMemoryLayout[layout]
+
+	@property
+	def dtype(self):
+		if self.layout == BlockMemoryLayout.std140:
+			raise NotImplementedError("TODO")
+		elif self.layout == BlockMemoryLayout.std430:
+			raise NotImplementedError("TODO")
+		else:
+			raise TypeError("The layout for this interface block is not defined.")
+
+class InterfaceBlockMember(Variable):
 	'''A variable that is a member of a data block (e.g. a uniform block)'''
-	def __init__(self, block, name, gl_type, shape=1):
+	def __init__(self, block, name, gl_type, shape=1, matrixlayout='column_major'):
 		super().__init__(name, gl_type, shape)
+		if not hasattr(gl_type, 'base_type'):
+			raise ValueError("Interface blocks may not contain opaque types.")
+		if isinstance(self.type, Matrix):
+			self.matrixlayout = MatrixMemoryLayout[matrixlayout]
 		self.block = block
 
 	@classmethod
-	def fromGLSLVar(cls, block, var):
-		'''Construct from a block :py:class:`.GLSLVar`
+	def fromVariable(cls, block, var, layout='column_major'):
+		'''Construct from a block and a :py:class:`.Variable`
 
 		:param str block: the block the variable belongs to
 		:param var: the variable describing the block member
-		:type var: :py:class:`.GLSLVar`
+		:type var: :py:class:`.Variable`
 		'''
-		return cls(block, var.name, var.type, var.shape)
+		return cls(block, var.name, var.type, var.shape, layout)
 
+	# TODO: array indices
 	@property
 	def gl_name(self):
 		'''The string used to refer to the block member in a shader'''

@@ -1,10 +1,25 @@
 from OpenGL import GL
-
-from .datatypes import gl_types
-
-from util.misc import product
+from OpenGL.constants import GLboolean, GLint, GLuint, GLfloat, GLdouble
+from numpy import dtype
 
 from collections import namedtuple
+
+from util.misc import product
+from .datatypes import Scalar, Vector, Matrix
+
+numpy_buffer_types = { dtype('int8'): GL.GL_BYTE
+                     , dtype('uint8'): GL.GL_UNSIGNED_BYTE
+                     , dtype('int16'): GL.GL_SHORT
+                     , dtype('uint16'): GL.GL_UNSIGNED_SHORT
+                     , dtype('int32'): GL.GL_INT
+                     , dtype('uint32'): GL.GL_UNSIGNED_INT
+                     , dtype('float16'): GL.GL_HALF_FLOAT
+                     , dtype('float32'): GL.GL_FLOAT
+                     , dtype('float64'): GL.GL_DOUBLE }
+integer_buffer_types = { GL.GL_BYTE, GL.GL_UNSIGNED_BYTE
+                       , GL.GL_SHORT, GL.GL_UNSIGNED_SHORT
+                       , GL.GL_INT, GL.GL_UNSIGNED_INT }
+floating_point_buffer_types = { GL.GL_HALF_FLOAT, GL.GL_FLOAT, GL.GL_DOUBLE }
 
 Empty = namedtuple("Empty", ["nbytes"])
 Empty.__doc__ = """A class to represent an empty buffer
@@ -95,9 +110,9 @@ class BufferBytes(Buffer):
 			i = slice(i, i + 1)
 		if i.step not in (None, 1):
 			raise IndexError("Cannot set non-contiguous buffer data.")
-		i = slice(*i.indices(self.nbytes))
+		i = range(*i.indices(self.nbytes))
 
 		if (i.stop - i.start) != value.nbytes:
 			raise ValueError("Data size does not match  buffer range.")
 		with self.buf:
-			GL.glBufferSubData(self.buf.target, i.start, i.stop - i.start, value)
+			GL.glBufferSubData(self.buf.target, i.start, len(i), value)

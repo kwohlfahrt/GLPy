@@ -1,63 +1,71 @@
 from OpenGL import GL
-from OpenGL.constants import GLboolean, GLint, GLuint, GLfloat
+from OpenGL.constants import GLboolean, GLint, GLuint, GLfloat, GLdouble
 
 from itertools import product as cartesian, chain, accumulate
+from functools import partial
 from collections import namedtuple
 import ctypes as c
 
 import numpy
+from numpy import dtype, nditer
 
 from util.misc import product, isContiguous
 
-from .datatypes import (data_types, sampler_types, vector_sizes, prefixes,
-                        GLSLVar, BlockMember)
+from .datatypes import ( Scalar, Vector, Matrix, Sampler, Variable
+                       , InterfaceBlock, InterfaceBlockMember )
 
 from .buffers import Buffer, Empty
 
-uniform_types = { 'bool': 'i'
+uniform_numpy_types = { Scalar.bool: dtype(GLint)
+                      , Scalar.int: dtype(GLint)
+                      , Scalar.uint: dtype(GLuint)
+                      , Scalar.float: dtype(GLfloat)
+                      , Scalar.double: dtype(GLdouble) }
+uniform_numpy_types.update({ v: dtype((uniform_numpy_types[v.base_type], v.shape[0]))
+                              for v in Vector })
+uniform_numpy_types.update({ m: dtype((uniform_numpy_types[m.base_type], m.shape))
+                              for m in Matrix })
+uniform_numpy_types.update({ s: dtype(GLint) for s in Sampler})
+# UNIFORM_MATRIX_STRIDE between matrix rows/columns
+# UNIFORM_ARRAY_STRIDE for arrays
+
+uniform_codes = { 'bool': 'i'
                 , 'int': 'i'
                 , 'uint': 'ui'
-                , 'float': 'f' }
+                , 'float': 'f'
+                , 'double': 'd' }
 
 setter_functions = {}
 getter_functions = {}
-for data_type in data_types:
-	code = uniform_types[data_type]
-	setter_functions[data_type] = getattr(GL, 'glUniform1{}v'.format(code))
-	getter_functions[data_type] = getattr(GL, 'glGetUniform{}v'.format(code))
+for scalar in Scalar:
+	code = uniform_codes[scalar.name]
+	setter_functions[scalar] = getattr(GL, 'glUniform1{}v'.format(code))
+	getter_functions[scalar] = getattr(GL, 'glGetUniform{}v'.format(code))
 
-for data_type in data_types:
-	prefix = prefixes[data_type]
-	code = uniform_types[data_type]
-	for size in vector_sizes:
-		vector_type = "{}vec{}".format(prefix, size)
-		setter_functions[vector_type] = getattr(GL, 'glUniform{}{}v'.format(size, code))
-		getter_functions[vector_type] = getattr(GL, 'glGetUniform{}v'.format(code))
+for vector in Vector:
+	code = uniform_codes[vector.base_type.name]
+	setter_functions[vector] = getattr(GL, 'glUniform{}{}v'.format(vector.shape[0], code))
+	getter_functions[vector] = getattr(GL, 'glGetUniform{}v'.format(code))
 
-for sampler_type in sampler_types.keys():
-	for data_type in ['int', 'uint', 'float']:
-		gl_type = "{}sampler{}".format(prefixes[data_type], sampler_type)
-		setter_functions[gl_type] = getattr(GL, 'glUniform1iv'.format(code))
-		getter_functions[gl_type] = getattr(GL, 'glUniform1iv'.format(code))
+for sampler in Sampler:
+		setter_functions[sampler] = GL.glUniform1iv
+		getter_functions[sampler] = GL.glGetUniformiv
 
-for size1, size2 in cartesian(vector_sizes, repeat=2):
-	if size1 == size2:
-		f = getattr(GL, 'glUniformMatrix{}fv'.format(size1))
+for matrix in Matrix:
+	code = uniform_codes[matrix.base_type.name]
+	if matrix.shape[0] == matrix.shape[1]:
+		f = getattr(GL, "glUniformMatrix{}{}v".format(matrix.shape[0], code))
 	else:
-		f = getattr(GL, 'glUniformMatrix{}x{}fv'.format(size1, size2))
-	# Numpy (and C) arrays are row-major, OpenGL expects column-major, so transpose
+		f = getattr(GL, "glUniformMatrix{}x{}{}v".format(matrix.shape[0], matrix.shape[1], code))
 	# OpenGL wrapperCall doesn't work with functools.partial
-	g = lambda location, count, value: f(location, count, True, value)
-	matrix_type = "mat{}x{}".format(size1, size2)
-	setter_functions[matrix_type] = g
-	getter_functions[matrix_type] = getattr(GL, 'glGetUniformfv')
-	if size1 == size2:
-		matrix_type = "mat{}".format(size1)
-		setter_functions[matrix_type] = g
-		getter_functions[matrix_type] = getattr(GL, 'glGetUniformfv')
+	# Double 'lambda' to make sure 'f' is bound to the correct function
+	g = (lambda f: lambda location, count, value: f(location, count, True, value))(f)
+	setter_functions[matrix] = g
+	getter_functions[matrix] = getattr(GL, "glGetUniform{}v".format(code))
 
+# TODO: Uniform structs
 # TODO: Add shortcut to set multiple uniforms in program object
-class UniformAttribute(GLSLVar):
+class UniformAttribute(Variable):
 	'''A uniform attribute bound to a program
 
 	:param program: The program the attribute is bound to.
@@ -85,6 +93,10 @@ class UniformAttribute(GLSLVar):
 			layout = "layout(location={})".format(self.location)
 			return ' '.join((layout, base))
 		return base
+
+	@property
+	def dtype(self):
+		return uniform_numpy_types[self.type]
 	
 	@property
 	def setter(self):
@@ -115,7 +127,7 @@ class UniformAttribute(GLSLVar):
 			self.getter(self.program.handle, self.location, out_buf)
 			out_buf = out_buf[0]
 		else:
-			for i, o in enumerate(numpy.nditer(out_buf, op_flags=['writeonly'])):
+			for i, o in enumerate(nditer(out_buf, op_flags=['writeonly'])):
 				self.getter(self.program.handle, self.location + i, o[...])
 		return out_buf.T
 	
@@ -139,35 +151,21 @@ def glGetActiveUniformsiv(program, indices, pname):
 	GL.glGetActiveUniformsiv(program, len(indices), indices, pname, out_array)
 	return [i for i in out_array]
 
-# TODO: Track layout (row/column major)
-class UniformBlock:
-	'''An OpenGL Uniform Block.
-
-	:param program: The program this block is in
-	:type program: :py:class:`.Program`
-	:param string name: The name of the uniform block
-	:param \\*members: The members of the uniform block
-	:type \\*members: [:py:class:`.GLSLVar`]
-	:param instance_name: The name of the instance of this block
-	:type instance_name: :py:obj:`string` or :py:obj:`None`
-	:param shape: The dimensions of the uniform block
-	:type shape: :py:obj:`int` or [:py:obj:`int`]
-	'''
-	def __init__(self, binding, program, name, *members, instance_name=None, shape=1):
-		self.name = name
+# CONTINUE HERE: Leave program, locations, etc uninitialized,
+# then initialize on binding to a program. Make sure to take proper steps for packed vs shared
+# Test glGetProgramResource*
+class UniformBlock(InterfaceBlock):
+	'''An OpenGL Uniform Block.'''
+	def __init__(self, program, binding, name, *members, instance_name='', shape=1, layout='shared'):
+		super().__init__(name, *members, instance_name=instance_name, shape=shape, layout=layout)
 		self.program = program
 		self.binding = binding
-		self.instance_name = instance_name or ''
-		try:
-			self.shape = tuple(shape)
-		except TypeError:
-			self.shape = (shape,)
 
 		self.index = GL.glGetUniformBlockIndex(self.program.handle, self.name)
 		GL.glUniformBlockBinding(self.program.handle, self.index, self.binding)
 		self.nbytes = GL.glGetActiveUniformBlockiv(self.program.handle, self.index, GL.GL_UNIFORM_BLOCK_DATA_SIZE)
 
-		members = [BlockMember.fromGLSLVar(self, m) for m in members]
+		members = [InterfaceBlockMember.fromVariable(self, m) for m in members]
 
 		member_indices = glGetUniformIndices(self.program.handle, [m.api_name for m in members])
 		member_offsets = glGetActiveUniformsiv(self.program.handle, member_indices, GL.GL_UNIFORM_OFFSET)
@@ -184,7 +182,7 @@ class UniformBlock:
 		return numpy.dtype([('', m.dtype, m.shape) for m in self.members])
 
 # Should not be instantiated directly
-class UniformBlockMember(BlockMember):
+class UniformBlockMember(InterfaceBlockMember):
 	def __init__(self, index, offset, block, name, gl_type, shape=1):
 		super().__init__(block, name, gl_type, shape)
 		self.index = index
@@ -193,6 +191,11 @@ class UniformBlockMember(BlockMember):
 	@classmethod
 	def fromBlockMember(cls, index, offset, var):
 		return cls(index, offset, var.block, var.name, var.type, var.shape)
+
+	# Shaered with UniformAttribute - common to uniform variables
+	@property
+	def dtype(self):
+		return uniform_numpy_types[self.type]
 
 class UniformBuffer(Buffer):
 	'''A buffer containing uniform data. May contain data for one or more uniform blocks.
@@ -272,7 +275,7 @@ class UniformBlockData:
 			idx = idxs if isinstance(idxs, slice) else slice(idxs, idxs + 1)
 			idxs = [slice(1), idx]
 		else:
-			idxs = (i if isinstance(i, slice) else slice(i, i + 1) for i in idxs)
+			idxs = [i if isinstance(i, slice) else slice(i, i + 1) for i in idxs]
 		if not isContiguous(idxs, self.shape):
 			raise IndexError("Only contiguous buffer sections may be set.")
 

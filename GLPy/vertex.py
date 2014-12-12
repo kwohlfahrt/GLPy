@@ -3,9 +3,9 @@ from OpenGL import GL
 from itertools import chain, repeat, product as cartesian
 from collections import Counter, namedtuple
 
-from .datatypes import GLSLVar, GLSLType
-from .datatypes import gl_types, gl_integer_types, data_types, prefixes, vector_sizes
-from .buffers import Buffer
+from .datatypes import Variable, Type
+from .datatypes import Scalar, Vector, Matrix
+from .buffers import Buffer, numpy_buffer_types, integer_buffer_types
 
 from util.misc import product, subIter
 
@@ -13,12 +13,9 @@ import numpy
 
 from ctypes import c_void_p
 
-gl_type_indices = { data_type: 1 for data_type in data_types }
-gl_type_indices.update({ "{}vec{}".format(prefix, size): 1 for prefix, size
-					  in cartesian(prefixes.values(), vector_sizes) })
-gl_type_indices.update({ "mat{}".format(size): size for size in vector_sizes })
-gl_type_indices.update({ "mat{}x{}".format(size1, size2): size1 for size1, size2
-					  in cartesian(vector_sizes, repeat=2) })
+gl_type_indices = { s: 1 for s in Scalar }
+gl_type_indices.update({ v: 1 for v in Vector })
+gl_type_indices.update({ m: m.shape[0] for m in Matrix })
 
 # TODO: Allow specifying attribute locations in advance
 class VAO:
@@ -26,7 +23,7 @@ class VAO:
 
 	:param attributes: The attributes that the VAO will contain.
 		Locations will be automatically generated.
-	:type attributes: [:py:class:`.GLSLVar`]
+	:type attributes: [:py:class:`.Variable`]
 	:param handle: The OpenGL handle to use. One will be created if it is :py:obj:`None`
 	:type param: :py:obj`int` or :py:obj:`None`
 	'''
@@ -39,7 +36,7 @@ class VAO:
 		self.attributes = []
 		index = 0
 		for a in attributes:
-			vertex_attribute = VertexAttribute.fromGLSLVar(index, self, a)
+			vertex_attribute = VertexAttribute.fromVariable(index, self, a)
 			self.attributes.append(vertex_attribute)
 			index += vertex_attribute.indices
 
@@ -96,7 +93,7 @@ class VAO:
 		if not self.bound:
 			GL.glBindVertexArray(0)
 
-class VertexAttribute(GLSLVar):
+class VertexAttribute(Variable):
 	"""A vertex attribute. Should not be instantiated directly, but instead be accessed through its
 	parent VAO.
 	"""
@@ -108,11 +105,11 @@ class VertexAttribute(GLSLVar):
 		self.track = None
 	
 	@classmethod
-	def fromGLSLVar(cls, location, vao, var):
+	def fromVariable(cls, location, vao, var):
 		return cls(location, vao, var.name, var.type, var.shape)
 
 	def __str__(self):
-		base = GLSLVar.__str__(self)
+		base = Variable.__str__(self)
 		if self.location is not None:
 			layout = "layout(location={})".format(self.location)
 			return ' '.join((layout, 'in', base))
@@ -151,7 +148,9 @@ class VertexAttribute(GLSLVar):
 
 		with self.vao, track.block.buf:
 			for i in range(self.indices):
-				GL.glVertexAttribPointer( self.location + i, track.components, gl_types[track.dtype.base]
+				# FIXME: Does not correct offset
+				GL.glVertexAttribPointer( self.location + i, track.components
+				                        , numpy_buffer_types[track.dtype.base]
 										, track.normalize, track.stride, c_void_p(track.offset))
 		
 		if self.track is not None:
@@ -160,7 +159,6 @@ class VertexAttribute(GLSLVar):
 		self.track.pointers.add(self)
 
 SubBuffer = namedtuple("SubBuffer", ["offset", "nbytes"])
-# CONTINUE HERE: Get rid of this? Perhaps update tracks directly and then add a refresh method?
 VertexFormat = namedtuple("VertexFormat", ["dtype", "offset", "components", "stride"])
 
 class VertexDataTrack:
@@ -176,13 +174,9 @@ class VertexDataTrack:
 	:param int indices: The number of vertex attribute indices specified in this data track.
 	:param bool normalize: Whether to normalize integer data into the [0,1] range
 	'''
-	gl_type_components = {data_type: 1 for data_type in data_types}
-	gl_type_components.update({ "{}vec{}".format(prefix, size): size for prefix, size
-	                         in cartesian(prefixes.values(), vector_sizes) })
-	gl_type_components.update({ "mat{}".format(size): size ** 2
-	                         for size in vector_sizes })
-	gl_type_components.update({ "mat{}x{}".format(size1, size2): size1 * size2
-	                         for size1, size2 in cartesian(vector_sizes, repeat=2) })
+	gl_type_components = {s: 1 for s in Scalar}
+	gl_type_components.update({ v: product(v.shape) for v in Vector })
+	gl_type_components.update({ m: product(m.shape) for m in Matrix })
 
 	def __init__(self, block, offset, dtype, components, indices, normalize=True):
 		self.block = block
@@ -195,7 +189,7 @@ class VertexDataTrack:
 		self.pointers = set()
 	
 	@classmethod
-	def fromGLSLType(cls, block, var):
+	def fromType(cls, block, var):
 		return cls(block, None, None
 		          , cls.gl_type_components[var.type]
 		          , gl_type_indices[var.type] * var.count)
@@ -223,13 +217,13 @@ class VertexDataBlock:
 	:type buf: :py:class:`.VertexBuffer`
 	:param contents: The vertex attributes this block describes.  One track will be created for each
 		attribute.
-	:type contents: :py:class:`.GLSLType`
+	:type contents: :py:class:`.Type`
 	:param location: The location of this block in the buffer passed in ``buf``
 	'''
 	def __init__(self, buf, *contents, location=(None, None)):
 		self.buf = buf
 		self.location = SubBuffer(*location)
-		self.tracks = [VertexDataTrack.fromGLSLType(self, c) for c in contents]
+		self.tracks = [VertexDataTrack.fromType(self, c) for c in contents]
 
 		self.length = 0
 		self.stride = None
@@ -253,7 +247,7 @@ class VertexDataBlock:
 		'''
 
 		if len(dtype) == 0:
-			if dtype.base.base not in gl_types:
+			if dtype.base.base not in numpy_buffer_types:
 				raise ValueError("Invalid data type for a vertex attribute.")
 			new_dtype = [('', dtype.base.base, (c.indices, c.components)) for c in self.tracks]
 		else:
@@ -262,7 +256,7 @@ class VertexDataBlock:
 			if any(len(dt) > 1 for dt in subIter(dtype)):
 				raise ValueError("Vertex attribute data may not be a record dtype.")
 			dtype = [dt if len(dt) == 0 else dt[0] for dt in subIter(dtype)]
-			if any(dt.base.base not in gl_types for dt in subIter(dtype)):
+			if any(dt.base.base not in numpy_buffer_types for dt in subIter(dtype)):
 				raise ValueError("Invalid vertex attribute data type in dtype.")
 			new_dtype = [('', dt.base.base, (c.indices, c.components))
 			             for dt, c in zip(subIter(dtype), self.tracks)]
@@ -340,7 +334,7 @@ class VertexBuffer(Buffer):
 
 	:param contents: The vertex attributes to be stored in this buffer, grouped into blocks. Single
 		attributes will be assigned to their own block.
-	:type contents: :py:class:`.GLSLType` or [:py:class:`.GLSLType`]
+	:type contents: :py:class:`.Type` or [:py:class:`.Type`]
 	'''
 
 	target = GL.GL_ARRAY_BUFFER
@@ -430,7 +424,7 @@ class ElementBuffer(Buffer):
 
 		   This method binds the buffer it belongs to.
 		'''
-		if gl_types[values.dtype] not in gl_integer_types:
+		if numpy_buffer_types[values.dtype] not in integer_buffer_types:
 			raise ValueError("Array dtype '{}' is not a valid dtype for an element buffer".format(values.dtype))
 		values.shape = (-1,)
 		if i is not Ellipsis:

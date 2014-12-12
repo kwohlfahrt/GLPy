@@ -9,7 +9,7 @@ A simple sample program looks like this:
    from OpenGL import GL, GLUT
    from math import radians
 
-   from GLPy import GLSLVar, Program, VAO, UniformBlock, UniformBuffer, ElementBuffer, VertexBuffer
+   from GLPy import Variable, Program, VAO, UniformBlock, UniformBuffer, ElementBuffer, VertexBuffer
 
    from util import xform
    from util.arcball import ArcBall
@@ -68,10 +68,10 @@ useful!).
 
 .. testcode:: sample
 
-   projection_uniforms = [ GLSLVar('model_camera_xform', 'mat4')
-                         , GLSLVar('camera_clip_xform', 'mat4') ]
-   uniforms = [GLSLVar('red', 'bool')]
-   attributes = [GLSLVar('position', 'vec4')]
+   projection_uniforms = [ Variable('model_camera_xform', 'mat4')
+                         , Variable('camera_clip_xform', 'mat4') ]
+   uniforms = [Variable('red', 'bool')]
+   attributes = [Variable('position', 'vec4')]
 
 Some data is set for our geometry. This describes a cube missing its side
 faces.
@@ -107,7 +107,7 @@ constructors.
 
    vao = VAO(attributes[0])
    program = Program(shaders, uniforms=uniforms, attributes=vao.attributes)
-   projection_block = UniformBlock( 1, program, "Projection"
+   projection_block = UniformBlock( program, 1, "Projection"
                                   , projection_uniforms[0], projection_uniforms[1])
    projection_buffer = UniformBuffer(projection_block)
 

@@ -3,7 +3,7 @@ from itertools import chain
 from OpenGL import GL
 import numpy
 
-from .datatypes import sampler_types, gl_types
+from .buffers import numpy_buffer_types
 
 create_storage = {getattr(GL, 'GL_TEXTURE_{}D'.format(d)):
                   getattr(GL, 'glTexStorage{}D'.format(d))
@@ -173,7 +173,7 @@ class ImmutableTexture:
 
 		components = range(*components.indices(self.components))
 		value.dtype = numpy.dtype(value.dtype.base, len(components))
-		value_type = gl_types[value.dtype.base]
+		value_type = numpy_buffer_types[value.dtype.base]
 
 		try:
 			value_format = pixel_components[components]

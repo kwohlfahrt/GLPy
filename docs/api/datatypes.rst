@@ -1,11 +1,14 @@
 Data Types
 ++++++++++
 
-.. autoclass:: GLPy.datatypes.GLSLType
+.. autoclass:: GLPy.datatypes.Type
    :members:
 
-.. autoclass:: GLPy.datatypes.GLSLVar
+.. autoclass:: GLPy.datatypes.Variable
    :members:
 
-.. autoclass:: GLPy.datatypes.BlockMember
+.. autoclass:: GLPy.datatypes.InterfaceBlock
+   :members:
+
+.. autoclass:: GLPy.datatypes.InterfaceBlockMember
    :members:
