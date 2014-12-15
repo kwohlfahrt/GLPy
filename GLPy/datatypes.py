@@ -8,12 +8,18 @@ from numpy import dtype
 from util.misc import product
 from enum import Enum
 
+scalar_types = ['bool', 'int', 'uint', 'float', 'double']
 class Scalar(Enum):
-	bool = 1
-	int = 2
-	uint = 3
-	float = 4
-	double = 5
+	'''The basic GLSL scalars.
+
+	Scalars define the following attributes:
+
+	*prefix*
+	  The prefix used for related types, e.g. ``'b'`` for ``Scalar.bool`` as a
+	  3-vector of booleans is a **b**\ vec3
+	*base_type*
+	  The base type of a scalar is itself
+	'''
 
 	__prefixes__ = { 'bool': 'b'
 	               , 'int': 'i'
@@ -24,6 +30,9 @@ class Scalar(Enum):
 	def __init__(self, value):
 		self.prefix = self.__prefixes__[self.name]
 		self.base_type = self
+scalar_doc = Scalar.__doc__
+Scalar = Enum('Scalar', scalar_types, type=Scalar)
+Scalar.__doc__ = scalar_doc
 
 floating_point_scalars = { Scalar.float, Scalar.double }
 
@@ -32,17 +41,26 @@ sampler_data_types = {Scalar.float, Scalar.int, Scalar.uint}
 sampler_types = [ "{}sampler{}D".format(scalar_type.prefix, ndim)
                   for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) ]
 class Sampler(Enum):
-	__sampler_ndim__ = { "{}sampler{}D".format(scalar_type.prefix, ndim): ndim
-	                     for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) }
+	__ndims__ = { "{}sampler{}D".format(scalar_type.prefix, ndim): ndim
+	              for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) }
 
 	def __init__(self, value):
-		self.ndim = self.sampler__ndim__[self.name]
-Sampler = Enum('Sampler', sampler_types)
+		self.ndim = self.__ndims__[self.name]
+Sampler = Enum('Sampler', sampler_types, type=Sampler)
 
 vector_sizes = range(2, 5)
 vector_types = ["{}vec{}".format(scalar_type.prefix, size)
                 for scalar_type, size in cartesian(Scalar, vector_sizes) ]
 class Vector(Enum):
+	'''The GLSL vector types.
+
+	Vectors define the following attributes:
+
+	*base_type*
+	  The :py:class:`Scalar` type that defines a single element of the vector
+	*shape*
+	  A 1-tuple of the number of elements in the vector
+	'''
 	__base_types__ = { "{}vec{}".format(scalar_type.prefix, size): scalar_type
 	                    for scalar_type, size in cartesian(Scalar, vector_sizes) }
 	__shapes__ = { "{}vec{}".format(scalar_type.prefix, size): (size,)
@@ -51,7 +69,9 @@ class Vector(Enum):
 	def __init__(self, value):
 		self.base_type = self.__base_types__[self.name]
 		self.shape = self.__shapes__[self.name]
+vector_doc = Vector.__doc__
 Vector = Enum('Vector', vector_types, type=Vector)
+Vector.__doc__ = vector_doc
 
 matrix_types = ( ["{}mat{}".format(scalar_type.prefix, size)
                   for scalar_type, size in cartesian(floating_point_scalars, vector_sizes)]
@@ -59,6 +79,16 @@ matrix_types = ( ["{}mat{}".format(scalar_type.prefix, size)
                   for scalar_type, size1, size2
                   in cartesian(floating_point_scalars, vector_sizes, vector_sizes)] )
 class Matrix(Enum):
+	'''The GLSL matrix types.
+
+	Matrices define the following attributes:
+
+	*base_type*
+	  The :py:class:`Scalar` type that defines a single element of the matrix
+	*shape*
+	  A 2-tuple of the number of elements along each dimension
+	'''
+
 	__base_types__ = { "{}mat{}".format(scalar_type.prefix, size): scalar_type
 	                   for scalar_type, size in cartesian(floating_point_scalars, vector_sizes) }
 	__base_types__.update({ "{}mat{}x{}".format(scalar_type.prefix, size1, size2): scalar_type
@@ -74,24 +104,24 @@ class Matrix(Enum):
 	def __init__(self, value):
 		self.shape = self.__shapes__[self.name]
 		self.base_type = self.__base_types__[self.name]
-
+matrix_doc = Matrix.__doc__
 Matrix = Enum('Matrix', matrix_types, type=Matrix)
+Matrix.__doc__ = matrix_doc
 
 glsl_types = [Scalar, Vector, Matrix, Sampler]
-
-#gl_types = {v: k for k, v in buf_types.items()}
 
 class Struct:
 	'''A GLSL ``struct``
 
 	:param str name: The name of the struct
 	:param \\*contents: The contents of the struct
-	:type \\*contents: [:py:class:`.GLSLVar`]
+	:type \\*contents: [:py:class:`.Variable`]
+	:raises TypeError: If ``contents`` contains any opaque types.
 	'''
 	def __init__(self, name, *contents):
 		self.name = name
 		if not all(hasattr(c, base_type) for c in contents):
-			raise ValueError("Interface blocks may not contain opaque types.")
+			raise TypeError("Interface blocks may not contain opaque types.")
 		self.contents = contents
 
 	def __str__(self):
@@ -102,10 +132,12 @@ class Struct:
 		return "{}(name='{}' contents={})".format(type(self).__name__, self.name, self.contents)
 
 class Type:
-	'''OpenGL type, not necessarily a named variable.
+	'''A GLSL type, not necessarily a named variable.
 
 	:param gl_type: The OpenGL data type (e.g. ``vec3``)
-	:type gl_type: :py:class:`.BaseType` or :py:class:`.Struct`
+	:type gl_type: :py:class:`.Scalar`, :py:class:`.Vector`
+	  :py:class:`.Matrix`, :py:class:`.Sampler` or :py:class:`.Struct` or
+	  :py:obj:`str`
 	:param shape: The shape of the data type if it is an array
 	:type shape: :py:obj:`int` or [:py:obj:`int`]
 	'''
@@ -136,10 +168,10 @@ class Type:
 		return product(self.shape)
 
 class Variable(Type):
-	'''A class to represent a named OpenGL variable.
+	'''A class to represent a named GLSL variable.
 
-	:param str name: The name of the OpenGL variable
-	:param str gl_type: The OpenGL data type (e.g. ``vec3``)
+	:param str name: The name of the GLSL variable
+	:param str gl_type: The GLSL data type (e.g. ``vec3``)
 	:param shape: The shape of the data type if it is an array
 	:type shape: :py:obj:`int` or [:py:obj:`int`]
 	'''
@@ -174,16 +206,23 @@ class MatrixMemoryLayout(Enum):
 
 # May have to separate out block and instance for different shader stages.
 class InterfaceBlock:
-	'''A generic interface block. Not to be instantiated directly, but as a
-	base for defined block types.
+	'''A generic interface block.
+
+	Not to be instantiated directly, but as a base for defined block types.
+
+	See :py:class:`InterfaceBlockMember` for additional exceptions that might be raised.
 	
 	:param str name: The name of the uniform block
-	:param \\*members: The members of the uniform block
+	:param \\*members: The members of the uniform block. They may not contain
+	  opaque types (e.g. :py:class:`.Sampler`)
 	:type \\*members: :py:class:`.Variable`
 	:param str instance_name: The name of the instance
-	:param shape: The shape of the variable. Requires an instance name if not `1`
+	:param shape: The shape of the variable.
 	:type shape: [:py:obj:`int`]
-	:param layout: The layout of the interface block'''
+	:param layout: The layout of the interface block
+	:raises ValueError: If an instance name is not defined and the block has a shape
+	  larger than (1,)
+	'''
 
 	def __init__(self, name, *members, instance_name='', shape=1, layout='shared'):
 		self.name = name
@@ -207,11 +246,15 @@ class InterfaceBlock:
 			raise TypeError("The layout for this interface block is not defined.")
 
 class InterfaceBlockMember(Variable):
-	'''A variable that is a member of a data block (e.g. a uniform block)'''
+	'''A variable that is a member of an interface block.
+
+	Constructed implicitly from contents passed to a :py:class:`.InterfaceBlock`.
+
+	:raises TypeError: If it is passed an opaque type as a base'''
 	def __init__(self, block, name, gl_type, shape=1, matrixlayout='column_major'):
 		super().__init__(name, gl_type, shape)
 		if not hasattr(gl_type, 'base_type'):
-			raise ValueError("Interface blocks may not contain opaque types.")
+			raise TypeError("Interface blocks may not contain opaque types.")
 		if isinstance(self.type, Matrix):
 			self.matrixlayout = MatrixMemoryLayout[matrixlayout]
 		self.block = block
@@ -235,6 +278,6 @@ class InterfaceBlockMember(Variable):
 
 	@property
 	def api_name(self):
-		'''The string used to refer to the block member in the OpenGL AP'''
+		'''The string used to refer to the block member in the OpenGL API'''
 		return (self.name if not self.block.instance_name
 		        else '.'.join((self.block.name, self.name)))
