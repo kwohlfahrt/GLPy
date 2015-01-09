@@ -40,4 +40,6 @@ rst_epilog = '''
 .. |vao-bind| replace:: :ref:`Binds a Vertex Array Object <vao-bind-warning>`
 .. |program-bind| replace:: :ref:`Binds a program <program-bind-warning>`
 .. _PyOpenGL: http://pyopengl.sourceforge.net/
+.. _NumPy: http://www.numpy.org/
+.. _Sphinx: http://sphinx-doc.org/
 '''

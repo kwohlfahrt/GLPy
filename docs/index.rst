@@ -13,7 +13,7 @@ Installation via ``pip`` will soon be supported. Not yet though.
 Requirements
 ------------
 
-`PyOpenGL`_ is required.
+`PyOpenGL`_ and `NumPy`_ are required. `Sphinx`_ is required to build documentation.
 
 Documentation
 =============

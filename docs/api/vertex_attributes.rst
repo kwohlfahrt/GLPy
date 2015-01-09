@@ -1,9 +1,6 @@
 Vertex Attributes
 +++++++++++++++++
 
-.. autoclass:: GLPy.vertex.VAO
+.. automodule:: GLPy.vertex
    :members:
    :special-members: __enter__
-
-.. autoclass:: GLPy.vertex.VertexAttribute
-   :members:
