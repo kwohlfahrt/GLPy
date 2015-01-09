@@ -35,7 +35,7 @@ class ArcBall:
 		self.points = [None, None]
 		
 	def currentRotation(self):
-		if None in self.points:
+		if any(a is None for a in self.points):
 			theta = 0
 		else:
 			theta = acos(numpy.dot(*self.points))
