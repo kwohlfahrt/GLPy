@@ -2,26 +2,35 @@ from OpenGL import GL
 
 from .uniform import UniformAttribute
 from .vertex import VertexAttribute
-from . import datatypes
 
 from itertools import product
 from collections import namedtuple
 from functools import partial
+from copy import deepcopy
 
-SHADER_TYPES = { 'vertex': GL.GL_VERTEX_SHADER
-               , 'fragment': GL.GL_FRAGMENT_SHADER
-               , 'geometry': GL.GL_GEOMETRY_SHADER
-               , 'tesselation control': GL.GL_TESS_CONTROL_SHADER
-               , 'tesselation evaluation': GL.GL_TESS_EVALUATION_SHADER }
+gl_shader_types = { 'vertex': GL.GL_VERTEX_SHADER
+                  , 'fragment': GL.GL_FRAGMENT_SHADER
+                  , 'geometry': GL.GL_GEOMETRY_SHADER
+                  , 'tesselation control': GL.GL_TESS_CONTROL_SHADER
+                  , 'tesselation evaluation': GL.GL_TESS_EVALUATION_SHADER }
 
+#TODO: Allow re-setting sources
 class Program:
-	"""An OpenGL program."""
+	"""An OpenGL program.
+	
+	:param dict sources: The shader sources, where the key is the name of the shader stage.
+	:param attributes: The vertex attributes used in the program
+	:type attributes: [:py:class:`.VertexAttribute`]
+	:param uniforms: The program's uniform attributes
+	:type uniforms: [:py:class:`.UniformAttribute`]
+	:param uniform_blocks: The uniform blocks defined in the program
+	:type uniform_blocks: [:py:class:`.UniformBlock`]
+	"""
 
-
-	def __init__(self, sources, attributes=None, uniforms=None, shared_uniforms=None):
-		attributes = attributes or []
-		uniforms = uniforms or []
-		shared_uniforms = shared_uniforms or []
+	def __init__(self, sources, attributes=None, uniforms=None, uniform_blocks=None):
+		self.attributes = deepcopy(attributes) or []
+		self.uniform_blocks = deepcopy(uniform_blocks) or []
+		self.uniforms = deepcopy(uniforms) or []
 
 		self.bound = 0
 		self.handle = GL.glCreateProgram()
@@ -29,7 +38,7 @@ class Program:
 			raise RuntimeError("Failed to create OpenGL program.")
 
 		for shader_type, src in sources.items():
-			gl_shader_type = SHADER_TYPES[shader_type]
+			gl_shader_type = gl_shader_types[shader_type]
 			shader = GL.glCreateShader(gl_shader_type)
 			GL.glShaderSource(shader, src)
 			GL.glCompileShader(shader) 
@@ -38,18 +47,20 @@ class Program:
 				raise RuntimeError("Failed to compile {} shader: \n\n{}".format(shader_type, log))
 			GL.glAttachShader(self.handle, shader)
 
-		# TODO: Enable getting of dynamically bound vertex attributes
-		for attribute in attributes:
-			if attribute.location is not None:
-				GL.glBindAttribLocation(self.handle, attribute.location, attribute.name)
+		self.link()
 
+	def link(self):
 		GL.glLinkProgram(self.handle)
 		if GL.glGetProgramiv(self.handle, GL.GL_LINK_STATUS) == GL.GL_FALSE:
 			log = GL.glGetProgramInfoLog(self.handle).decode()
 			raise RuntimeError("Failed to link program: \n\n{}".format(log))
 
-		self.uniforms = {u.name: UniformAttribute.fromGLSLVar(self, u) for u in uniforms}
-	
+		for uniform in self.uniforms:
+			uniform.program = self
+
+		for attribute in self.attributes:
+			attribute.program = self
+		
 	def __enter__(self):
 		'''Program provide a context manager that keep track of how many times the program has been
 		bound and unbound. Grouping operations on a program within a context where it is bound

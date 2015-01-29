@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 
-from math import radians
 import os, unittest
 
-from OpenGL import GLUT, GL
+from OpenGL import GLUT
 import numpy
 from numpy.testing import assert_array_equal
 
-from GLPy import Program, Variable, Type, VAO, VertexBuffer, UniformBlock, UniformBuffer, ImmutableTexture
+from GLPy import ( Program, Variable, Type, VAO, VertexAttribute
+                 , Buffer, ImmutableTexture )
 
 class ContextTest(unittest.TestCase):
 	def setUp(self):
@@ -34,20 +34,19 @@ def readShaders(**shader_paths):
 			shaders[shader] = f.read()
 	return shaders
 
-class ProgramTest(unittest.TestCase):
+class ProgramTest(ContextTest):
 	def setUp(self):
+		super().setUp()
+
 		shader_files = { 'vertex': 'compile.vert'
 		               , 'fragment': 'compile.frag'}
 		shaders = readShaders(**shader_files)
-		ContextTest.setUp(self)
 		self.program = Program(shaders)
 	
-	def tearDown(self):
-		ContextTest.tearDown(self)
-
 	def test_compilation(self):
 		pass
 	
+@unittest.skip('Working on buffers')
 class UniformTest(unittest.TestCase):
 	def setUp(self):
 		shader_files = { 'vertex': 'uniform.vert'
@@ -95,142 +94,6 @@ class UniformTest(unittest.TestCase):
 		with self.assertRaises(RuntimeError):
 			program.uniforms['foobar'].data
 
-# TODO: Test matrix vertex attributes
-class VertexBufferTest(unittest.TestCase):
-	def setUp(self):
-		self.buffer_contents = [ Type('vec3')
-		                       , Type('vec3') ]
-		ContextTest.setUp(self)
-
-	def tearDown(self):
-		ContextTest.tearDown(self)
-	
-	def test_compile(self):
-		pass
-	
-	def test_simple_buffer(self):
-		buf = VertexBuffer(Type('vec3'))
-		data = numpy.array([[1, 1, 1], [1, 2, 3], [1, 2, 1]], dtype='float32')
-		buf[...] = data,
-		self.assertEqual(len(buf), 3)
-		buf.blocks[0][...] = data
-		self.assertEqual(len(buf), 3)
-		data = numpy.array([[1, 1, 1, 2], [1, 2, 3, 2], [1, 2, 1, 2]], dtype='float32')
-		with self.assertRaises(ValueError):
-			buf[...] = data,
-		with self.assertRaises(ValueError):
-			buf.blocks[0][:] = data
-	
-	def test_struct_buffer(self):
-		buf = VertexBuffer([Type('vec3'), Type('float')])
-		dt = numpy.dtype([('', 'float32', 3), ('', 'float32', 1)])
-		data = numpy.array([([1, 1, 1], 3)
-		                   ,([1, 2, 3], 0)
-						   ,([4, 0, 0], 2)]
-						  , dtype=dt)
-		buf[...] = data,
-		self.assertEqual(len(buf), 3)
-		buf.blocks[0][:] = data
-		self.assertEqual(len(buf), 3)
-		dt = numpy.dtype([('', 'float32', 4), ('', 'float32', 1)])
-		data = numpy.array([([1, 1, 1, 0], 3)
-		                   ,([1, 2, 3, 0], 0)
-						   ,([4, 0, 0, 0], 2)]
-						  , dtype=dt)
-		with self.assertRaises(ValueError):
-			buf[...] = data,
-		with self.assertRaises(ValueError):
-			buf.blocks[0][...] = data
-
-	def test_array_struct_buffer(self):
-		buf = VertexBuffer([Type('vec3'), Type('float', shape=(2,))])
-		dt = numpy.dtype([('', 'float32', 3), ('', 'float32', 2)])
-		data = numpy.array([([1, 1, 1], [3, 4])
-		                   ,([1, 2, 3], [0, 3])
-						   ,([4, 0, 0], [2, 2])]
-						  , dtype=dt)
-		buf[...] = data,
-		self.assertEqual(len(buf), 3)
-		buf.blocks[0][...] = data
-		self.assertEqual(len(buf), 3)
-
-class VertexAttributeTest(unittest.TestCase):
-	def setUp(self):
-		shader_files = { 'vertex': 'vertices.vert'
-		               , 'fragment': 'vertices.frag' }
-		shaders = readShaders(**shader_files)
-
-		vertex_attributes = [ Variable('position', 'vec4')
-							, Variable('color', 'vec3') ]
-
-		ContextTest.setUp(self)
-		self.vao = VAO(*vertex_attributes)
-		self.program = Program(shaders, attributes=self.vao.attributes)
-
-	def tearDown(self):
-		ContextTest.tearDown(self)
-	
-	def test_position(self):
-		buf = VertexBuffer(Type('vec3'))
-		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
-		buf[...] = data
-		self.vao[0].data = buf.blocks[0].tracks[0]
-
-class UniformBlockTest(unittest.TestCase):
-	def setUp(self):
-		shader_files = { 'vertex': 'uniform_block.vert'
-		               , 'fragment': 'compile.frag' }
-		shaders = readShaders(**shader_files)
-
-		uniforms = [ Variable('xform', 'mat4', 1)
-		           , Variable('origin', 'bool', 1) ]
-		ContextTest.setUp(self)
-		self.program = Program(shaders)
-		self.uniform_block = UniformBlock(self.program, 1, "Projection", *uniforms)
-
-	def tearDown(self):
-		ContextTest.tearDown(self)
-	
-	def test_get_block_index(self):
-		self.assertEqual(self.uniform_block.index, 0)
-	
-	def test_get_member_indices(self):
-		indices = [m.index for m in self.uniform_block.members]
-		self.assertIn(0, indices)
-		self.assertIn(1, indices)
-	
-	def test_get_member_offsets(self):
-		offsets = [m.offset for m in self.uniform_block.members]
-		self.assertIn(0, offsets)
-		self.assertIn(64, offsets)
-	
-	def test_buffer(self):
-		buf = UniformBuffer(self.uniform_block)
-		buf.blocks[0][1] = numpy.asarray(True, dtype='float32')
-		buf.blocks[0][0] = numpy.eye(4, dtype='float32')
-	
-	def test_buffer_fail(self):
-		buf = UniformBuffer(self.uniform_block)
-		with self.assertRaises(ValueError):
-			buf.blocks[0][0] = numpy.asarray(True, dtype='float32')
-		with self.assertRaises(ValueError):
-			buf.blocks[0][0] = numpy.eye(3, dtype='float32')
-	
-	def test_buffer_record(self):
-		buf = UniformBuffer(self.uniform_block)
-		a = numpy.arange(16, dtype='float32')
-		dt = numpy.dtype([('', 'float32', (4, 4))])
-		a.dtype = dt
-		buf.blocks[0][0] = a
-
-	def test_buffer_record_fail(self):
-		buf = UniformBuffer(self.uniform_block)
-		a = numpy.arange(12, dtype='float32')
-		dt = numpy.dtype([('', 'float32', (3, 4))])
-		a.dtype = dt
-		with self.assertRaises(ValueError):
-			buf.blocks[0][0] = a
-
 class TextureTest(unittest.TestCase):
 	def setUp(self):
 		ContextTest.setUp(self)
@@ -245,6 +108,7 @@ class TextureTest(unittest.TestCase):
 		data[1:2, 1:2] = 1;
 		tex[:,:] = data
 	
+	@unittest.skip('working on buffers')
 	def testSampler(self):
 		size = (4, 4)
 		tex = ImmutableTexture(size, components=1, bits=8, normalized=True)

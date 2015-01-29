@@ -21,10 +21,10 @@ class TestProduct(unittest.TestCase):
 	def test_ones(self):
 		for i in range(3):
 			self.assertEqual(product([1] * i), 1)
-	
+
 	def test_sequence(self):
 		self.assertEqual(product(self.seq), self.seq_prod)
-	
+
 	def test_generator(self):
 		g = (i for i in range(3))
 		self.assertEqual(product(g), 0)
@@ -35,7 +35,7 @@ class TestLast(unittest.TestCase):
 	def test_basic(self):
 		l = [1, 54, 12, 10, 20]
 		self.assertEqual(last(l), l[-1])
-	
+
 	def test_error_empty(self):
 		self.assertRaises(StopIteration, last, [])
 
@@ -44,13 +44,19 @@ class TestSubIter(unittest.TestCase):
 		l = [1, 2, 4, 1]
 		self.assertEqual(list(subIter(l)), l)
 
-class TestIsContiguous(unittest.TestCase):
+class TestEqual(unittest.TestCase):
+	def test_equal(self):
+		g = itertools.repeat(1, 5)
+		self.assertTrue(equal(g))
+
+	def test_not_equal(self):
+		g = range(5)
+		self.assertFalse(equal(g))
+
+class TestContains(unittest.TestCase):
 	def test_simple(self):
-		shape = (10,)
-		self.assertTrue(isContiguous([slice(6)], shape))
-		self.assertTrue(isContiguous([slice(3, 6)], shape))
-	
-	def test_step(self):
-		shape = (10,)
-		self.assertFalse(isContiguous([slice(3, 10, 2)], shape))
-		self.assertTrue(isContiguous([slice(3, 10, 20)], shape))
+		self.assertTrue(contains([1, 2], [1, 2, 3, 4, 5]))
+		self.assertTrue(contains([3, 4], [1, 2, 3, 4, 5]))
+		self.assertTrue(contains([4, 5], [1, 2, 3, 4, 5]))
+		self.assertFalse(contains([5, 4], [1, 2, 3, 4, 5]))
+		self.assertFalse(contains([1, 3], [1, 2, 3, 4, 5]))

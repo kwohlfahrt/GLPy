@@ -9,7 +9,7 @@ A simple sample program looks like this:
    from OpenGL import GL, GLUT
    from math import radians
 
-   from GLPy import Variable, Program, VAO, UniformBlock, UniformBuffer, ElementBuffer, VertexBuffer
+   from GLPy import Variable, Program, VertexAttribute, VAO, Buffer
 
    from util import xform
    from util.arcball import ArcBall
@@ -86,6 +86,8 @@ faces.
 All further steps require an OpenGL context, so one must be created. In this
 example, we will use ``GLUT`` to create one.
 
+.. TODO: Do something about * and syntax highlighting
+
 .. testcode:: sample
 
    GLUT.glutInit()
@@ -93,7 +95,7 @@ example, we will use ``GLUT`` to create one.
    GLUT.glutInitContextVersion(3, 3)
    GLUT.glutInitContextProfile(GLUT.GLUT_CORE_PROFILE)
    window_size = (400, 400)
-   GLUT.glutInitWindowSize(window_size[0], window_size[1])
+   GLUT.glutInitWindowSize(*window_size) #* (syntax highlighting)
    GLUT.glutCreateWindow("GLPy")
 
    GL.glClearColor(0, 0, 0, 1)
@@ -105,33 +107,29 @@ constructors.
 
 .. testcode:: sample
 
-   vao = VAO(attributes[0])
+   vao = VAO(*attributes) #*
    program = Program(shaders, uniforms=uniforms, attributes=vao.attributes)
-   projection_block = UniformBlock( program, 1, "Projection"
-                                  , projection_uniforms[0], projection_uniforms[1])
-   projection_buffer = UniformBuffer(projection_block)
+   projection_block = UniformBlock( program, 1, "Projection", *projection_uniforms) #*
+   projection_buffer = Buffer()
+   projection_buffer[...] = numpy.dtype([(v.name, v.dtype) for v in projection_uniforms])
 
-   element_buffer = ElementBuffer()
+   element_buffer = Buffer()
    element_buffer[...] = indices
 
-   vertex_buffer = VertexBuffer(vao.attributes[0])
+   vertex_buffer = Buffer()
+   vertex_buffer[...] = cube
 
 Then the uniforms and buffer contents are set, and vertex data is added to the the VAO.
 
 .. testcode:: sample
 
-   # model_camera_xform
-   projection_buffer.blocks[0].members[0].data = xform.lookAt((0, 0, 3)).astype('float32')
-   # camera_clip_xform
-   projection_buffer.blocks[0].members[1].data = xform.perspective(radians(90)).astype('float32')
+   projection_buffer['model_camera_xform'].data = xform.lookAt((0, 0, 3)).astype('float32')
+   projection_buffer['camera_clip_xform'].data = xform.perspective(radians(90)).astype('float32')
    program.uniforms['red'].data = False
 
    # We only want to set 3 of the vec4 components
-   vertex_buffer.blocks[0].tracks[0].components = 3
-   vertex_buffer[...] = cube,
-   vao.attributes[0].data = vertex_buffer.blocks[0].tracks[0]
-
-   vao.elements = element_buffer
+   vao.attributes[0].data = vertex_buffer[0]
+   vao.elements = element_buffer[0]
 
 Finally, the following code will display the geometry::
 
@@ -153,7 +151,7 @@ between different color schemes.
    arcball = ArcBall(window_size, (window_size[0], -window_size[1]))
 
    def updateRotation(rotation):
-      projection_buffer.blocks[0][0] = xform.lookAt((0, 0, 3)).dot(rotation).astype('float32')
+      projection_buffer[0] = xform.lookAt((0, 0, 3)).dot(rotation).astype('float32')
       display()
 
    def mousebutton(button, state, x, y):
