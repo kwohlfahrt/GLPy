@@ -3,7 +3,7 @@ from OpenGL import GL
 from itertools import islice
 from collections import Counter, namedtuple
 
-from .datatypes import Variable, Type
+from .datatypes import Variable
 from .datatypes import Scalar, Vector, Matrix
 from .buffers import Buffer, numpy_buffer_types, buffer_numpy_types, integer_buffer_types
 
