@@ -128,6 +128,14 @@ class Matrix(str, BasicType, Enum):
 	def __init__(self, value):
 		self.shape = self.__shapes__[self.name]
 		self.scalar_type = self.__scalar_types__[self.name]
+
+	@property
+	def rows(self):
+		return self.shape[1]
+
+	@property
+	def columns(self):
+		return self.shape[0]
 matrix_doc = Matrix.__doc__
 Matrix = Enum('Matrix', ((m, m) for m in matrix_types), type=Matrix)
 Matrix.__doc__ = matrix_doc

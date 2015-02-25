@@ -2,7 +2,8 @@ from OpenGL import GL
 from OpenGL.constants import GLboolean, GLint, GLuint, GLfloat, GLdouble
 from numpy import ndarray, dtype, frombuffer
 
-from itertools import chain, repeat, takewhile
+from itertools import chain, repeat
+from functools import partial
 
 from ctypes import c_byte
 
@@ -42,6 +43,7 @@ class Buffer:
 		self.mapped = False
 		self.usage = usage
 		self.dtype = None
+		# Buffer not created until bound, this only reserves a name
 		self.handle = GL.glGenBuffers(1) if handle is None else handle
 
 	# TODO: Deal with deleting buffers
@@ -71,6 +73,7 @@ class Buffer:
 
 		   This action binds the buffer.
 		"""
+
 		if not self.mapped:
 			return
 
@@ -123,7 +126,8 @@ class Buffer:
 		   It is not allowed to bind two buffers with the same target
 		   simultaneously. It is allowed to bind the *same* buffer multiple times.
 		   
-		   Methods that bind a buffer will be documented"""
+		   Methods that bind a buffer will be documented
+		"""
 		if not self.bound:
 			GL.glBindBuffer(self.target, self.handle)
 		self.bound += 1
@@ -138,6 +142,19 @@ class Buffer:
 		return self.dtype.itemsize
 
 	@property
+	def stride(self):
+		"""Return the stride of buffer rows (in machine units)."""
+		try:
+			count, *shape = self.dtype.shape
+		except ValueError:
+			return None
+		return self.dtype.base.itemsize * product(shape)
+
+	@property
+	def items(self):
+		return BufferItem.fromBuffer(self)
+
+	@property
 	def data(self):
 		""" Returns or sets the contents of the buffer, as a :py:class:`numpy.ndarray`
 
@@ -145,6 +162,7 @@ class Buffer:
 
 		   Reading and writing from this property both bind the buffer.
 		"""
+		# TODO: server-side buffer copies via assigning a (Sub)Buffer (instead of numpy array)
 		with self:
 			a = GL.glGetBufferSubData(self.target, 0, self.nbytes)
 		a.dtype = self.dtype.base
@@ -171,6 +189,7 @@ class SubBuffer:
 		parent.
 	'''
 	
+	# FIXME: Reduce buffer indexing options to simplify this.
 	def __init__(self, parent, *idxs):
 		self.parent = parent
 		if parent.dtype.subdtype is None:
@@ -179,12 +198,14 @@ class SubBuffer:
 			if len(idxs) != 1:
 				raise IndexError("Invalid index into record array.")
 			idx = idxs[0]
-			try:
-				idx = parent.dtype.names.index(idx)
-			except ValueError:
-				if idx not in range(-len(parent.dtype), len(parent.dtype)):
+			if idx in range(-len(parent.dtype), len(parent.dtype)):
+				idx = idx % len(parent.dtype)
+			else:
+				try:
+					idx = parent.dtype.names.index(idx)
+				except ValueError:
 					raise IndexError("No such field: {}".format(idx))
-			self.offset = sum(parent.dtype[i].itemsize for i in range(idx))
+			offset = sum(parent.dtype[i].itemsize for i in range(idx))
 			self.dtype = parent.dtype.base[idx]
 		else:
 			parent_base, parent_shape = parent.dtype.subdtype
@@ -194,7 +215,7 @@ class SubBuffer:
 					raise IndexError("Too many indices.")
 				if not isContiguous(idxs, parent_shape):
 					raise IndexError("Non-contiguous indexing is not permitted.")
-				self.offset = flatOffset(idxs, parent_shape, base=parent_base.itemsize)
+				offset = flatOffset(idxs, parent_shape, base=parent_base.itemsize)
 				if any(idx >= s for idx, s in zip(idxs, parent_shape)
 				       if not isinstance(idx, slice)):
 					raise IndexError("Index out of bounds.")
@@ -229,9 +250,13 @@ class SubBuffer:
 							raise IndexError("Non-contiguous indexing is not permitted.")
 					base_dtype = dtype([(name, parent_base[name]) for name in field_names])
 					self.dtype = dtype((base_dtype, parent_shape))
-				preceeding_fields = takewhile(lambda x: x != first_field, parent.dtype.base.names)
-				self.offset = sum(parent_base[name].itemsize for name in preceeding_fields)
-		self.offset += getattr(parent, 'offset', 0)
+				offset = parent_base.fields[first_field][1]
+		self.offset = offset + getattr(parent, 'offset', 0)
+		self.buffer = getattr(parent, 'buffer', parent)
+
+	@property
+	def items(self):
+		return BufferItem.fromBuffer(self)
 
 	def map(self, access=(GL.GL_MAP_READ_BIT | GL.GL_MAP_WRITE_BIT )):
 		"""Returns a numpy array mapped to the sub-buffer.
@@ -259,14 +284,6 @@ class SubBuffer:
 		raise NotImplementedError("TODO: Allow changing sub-buffer dtypes.")
 
 	@property
-	def buffer(self):
-		"""The :py:class:`Buffer` object that this sub-buffer indexes."""
-		parent = self.parent
-		while hasattr(parent, 'parent'):
-			parent = parent.parent
-		return parent
-
-	@property
 	def nbytes(self):
 		return self.dtype.itemsize
 
@@ -286,6 +303,59 @@ class SubBuffer:
 		with self.buffer:
 			GL.glBufferSubData(self.buffer.target, self.offset, value.nbytes, value)
 
+	@property
+	def stride(self):
+		"""Return the stride of buffer rows (in machine units)."""
+		try:
+			count, *shape = self.dtype.shape
+		except ValueError:
+			return None
+		return self.dtype.base.itemsize * product(shape)
+
+class BufferItem:
+	"""A repeated item in a buffer. Intended for use with vertex attributes.
+
+	:ivar dtype: The data type of this item
+	:ivar buffer: The buffer this item is from
+	:ivar offset: The offset of this item in the buffer
+	"""
+
+	def __init__(self, parent, offset, dtype):
+		self.dtype = dtype
+		self.offset = offset + getattr(parent, 'offset', 0)
+		self.buffer = getattr(parent, 'buffer', parent)
+
+	@classmethod
+	def fromBuffer(cls, buf):
+		base, shape = buf.dtype.subdtype or (buf.dtype, ())
+		dt = dtype((base, shape[1:]))
+		return cls(buf, 0, dt)
+
+	@property
+	def components(self):
+		return product(self.dtype.shape)
+
+	def __getitem__(self, idx):
+		if len(self.dtype):
+			# Record data type
+			try:
+				dt, offset = self.dtype.fields[idx]
+			except KeyError:
+				dt, offset = self.dtype.fields[self.dtype.names[idx]]
+		else:
+			# Array data type
+			try:
+				count, *shape = self.dtype.shape
+			except ValueError:
+				raise IndexError("Cannot index into a base data type.")
+			if idx >= count:
+				raise IndexError("Index {} is out of bounds for array of length {}"
+				                 .format(idx, count))
+			dt = dtype((self.dtype.base, tuple(shape)))
+			offset = self.dtype.itemsize * idx
+
+		return BufferItem(self, offset, dt)
+
 class BufferMapping(ndarray):
 	"""A numpy array that is mapped to a buffer.
 
@@ -294,7 +364,7 @@ class BufferMapping(ndarray):
 	.. warning:: Undefined behaviour
 
 	   Behavious is undefined if the array is used in a manner inconsistent with the flags it
-	   was mapped with (e.g. reading an array mapped only with :py:obj:`GL.GL_MAP_WRITE_BIT`
+	   was mapped with (e.g. reading an array mapped only with :py:obj:`GL.GL_MAP_WRITE_BIT`)
 	"""
 	def __new__(cls, shape, dtype, buffer, gl_buffer, gl_offset, access):
 		obj = ndarray.__new__(cls, shape, dtype, buffer)
@@ -323,13 +393,16 @@ class BufferMapping(ndarray):
 		If it was mapped with :py:obj:`GL.GL_MAP_FLUSH_EXPLICIT_BIT` the buffer is flushed using
 		:py:func:`GL.glFlushMappedBufferRange`
 
-		Otherwise, a memory barrier is issued.
+		Otherwise, a memory barrier is issued. This requires ``ARB_shader_image_load_store``.
 
 		.. admonition:: |buffer-bind|
 
 		   This action binds the buffer *only if* :py:obj:`GL.GL_MAP_FLUSH_EXPLICIT_BIT` was set
 		   when the buffer was bound.
 		"""
+
+		# FIXME: FLUSH_EXPLICIT_BIT is for flushing sub-ranges (no auto-flush at unmap?), so flush minimal region instead of whole mapped region
+
 		if self.access & GL.GL_MAP_FLUSH_EXPLICIT_BIT:
 			length = self.dtype.itemsize * product(self.shape)
 			with self.gl_buffer:

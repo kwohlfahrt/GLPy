@@ -6,7 +6,7 @@ from OpenGL import GLUT
 import numpy
 from numpy.testing import assert_array_equal
 
-from GLPy import ( Program, Variable, Type, VAO, VertexAttribute
+from GLPy import ( Program, Variable, VAO, VertexAttribute
                  , Buffer, ImmutableTexture )
 
 class ContextTest(unittest.TestCase):
@@ -46,54 +46,6 @@ class ProgramTest(ContextTest):
 	def test_compilation(self):
 		pass
 	
-@unittest.skip('Working on buffers')
-class UniformTest(unittest.TestCase):
-	def setUp(self):
-		shader_files = { 'vertex': 'uniform.vert'
-		               , 'fragment': 'compile.frag' }
-		shaders = readShaders(**shader_files)
-
-		uniforms = [ Variable('xform', 'mat4', 1)
-		           , Variable('origin', 'bool', 1)
-		           , Variable('is', 'int', 3) ]
-		ContextTest.setUp(self)
-		self.program = Program(shaders, uniforms=uniforms)
-
-	def tearDown(self):
-		ContextTest.tearDown(self)
-	
-	def test_boolean(self):
-		self.assertFalse(self.program.uniforms['origin'].data)
-		self.program.uniforms['origin'].data = True
-		self.assertTrue(self.program.uniforms['origin'].data)
-	
-	def test_matrix(self):
-		assert_array_equal( self.program.uniforms['xform'].data
-		                  , numpy.identity(4))
-		new_xform = numpy.arange(16, dtype='float32')
-		new_xform.shape = (4, 4)
-		self.program.uniforms['xform'].data = new_xform
-		assert_array_equal( self.program.uniforms['xform'].data
-		                  , new_xform)
-	
-	def test_array(self):
-		old_is = numpy.array([1, 2, 3], dtype='int32')
-		assert_array_equal(self.program.uniforms['is'].data, old_is)
-		new_is = numpy.array([6, 2, 0], dtype='int32')
-		self.program.uniforms['is'] = new_is
-		assert_array_equal(self.program.uniforms['is'].data, new_is)
-	
-	def test_invalid_uniform(self):
-		shader_files = { 'vertex': 'uniform.vert'
-		               , 'fragment': 'compile.frag' }
-		shaders = readShaders(**shader_files)
-		uniforms = [Variable('xform', 'mat4', 1), Variable('foobar', 'vec3', 1)]
-
-		program = Program(shaders, uniforms=uniforms)
-
-		with self.assertRaises(RuntimeError):
-			program.uniforms['foobar'].data
-
 class TextureTest(unittest.TestCase):
 	def setUp(self):
 		ContextTest.setUp(self)

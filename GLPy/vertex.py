@@ -1,10 +1,10 @@
 from OpenGL import GL
 
-from itertools import islice
+from itertools import repeat, chain
 from collections import Counter, namedtuple
 
 from .datatypes import Variable
-from .datatypes import Scalar, Vector, Matrix
+from .datatypes import Scalar, Vector, Matrix, BasicType, Array
 from .buffers import Buffer, numpy_buffer_types, buffer_numpy_types, integer_buffer_types
 
 from util.misc import product, subIter
@@ -13,31 +13,107 @@ import numpy
 
 from ctypes import c_void_p
 
+class VertexAttribute(Variable):
+	"""A vertex attribute.
+
+	:param location: The location of this vertex attribute. Will be queried
+	  upon linking if not defined.
+	:type location: :py:obj:`int` or :py:obj:`None`
+	:raises TypeError: If the passed GLSL type is not an instance of :py:class:`.BasicType` or an
+	  :py:class:`.Array` of :py:class:`.BasicType`
+	"""
+
+	program = None #: The program containing this attribute
+
+	# How does glVertexAttribDivisor work with glVertexBindingDivisor?
+	def __init__(self, name, gl_type, shader_location=None, normalized=True):
+		super().__init__(name=name, gl_type=gl_type)
+		# Could also check for base_type attribute
+		base_type = getattr(self.type, 'base', self.type)
+		if not isinstance(base_type, BasicType):
+			raise TypeError("Invalid type for a vertex attribute.")
+		self.shader_location = shader_location
+		'''The location of this attribute if specified in the shader'''
+		self.normalized = normalized 
+		'''Whether a floating-point data type should be normalized from integer data'''
+		self.VAOs = []
+		'''The VAOs that contain this attribute'''
+	
+	@classmethod
+	def fromVariable(cls, var, shader_location=None, normalized=True):
+		return cls(var.name, var.type, shader_location, normalized)
+
+	def __str__(self):
+		base = super().__str__()
+		if self.shader_location is not None:
+			layout = "layout(location={})".format(self.location)
+			return ' '.join((layout, 'in', base))
+		return ' '.join(('in', base))
+
+	gl_type_indices = { s: 1 for s in Scalar }
+	gl_type_indices.update({ v: 1 for v in Vector })
+	gl_type_indices.update({ m: m.shape[0] for m in Matrix })
+
+	@property
+	def indices(self):
+		'''The total number of vertex attribute indices taken up by the attribute.'''
+		gl_type = getattr(self.type, 'base', self.type)
+		element_indices = getattr(gl_type, 'columns', 1)
+		array_shape = getattr(self.type, 'full_shape', (1,))
+		return element_indices * product(array_shape)
+
+	@property
+	def dynamic_location(self):
+		return GL.glGetAttribLocation(self.program.handle, self.name)
+
+	@property
+	def location(self):
+		if self.shader_location is not None:
+			return self.shader_location
+		return self.dynamic_location
+	
+	@property
+	def locations(self):
+		return range(self.location, self.location + self.indices)
+	
+	@property
+	def components(self):
+		'''The maximum number of components of a single attribute index of this type.'''
+
+		gl_type = getattr(self.type, 'base', self.type)
+		return getattr(gl_type, 'shape', (1,))[-1]
+
 # These types are valid OpenGL data types for glDrawElements
 gl_element_buffer_types = { GL.GL_UNSIGNED_BYTE, GL.GL_UNSIGNED_SHORT, GL.GL_UNSIGNED_INT }
 element_buffer_dtypes = { buffer_numpy_types[gl_type] for gl_type in gl_element_buffer_types }
 
-# TODO: Allow specifying attribute locations in advance
 class VAO:
 	'''A class to represent VAO objects.
 
 	:param \\*attributes: The attributes that the VAO will contain.
-		Locations will be automatically generated.
 	:type \\*attributes: :py:class:`.VertexAttribute`
 	:param handle: The OpenGL handle to use. One will be created if it is :py:obj:`None`
 	:type param: :py:obj`int` or :py:obj:`None`
+	:raises GL.GLError: If any attribute attempts to define locations greater than
+	  :py:obj:`GL.GL_MAX_VERTEX_ATTRIBS`
 	'''
+
+	_element_buffer = None
 
 	def __init__(self, *attributes, handle=None):
 		self.handle = GL.glGenVertexArrays(1) if handle is None else handle
-		self.attributes = attributes
-		self._element_buffer = None
-
+		self.attributes = {}
 		self.bound = 0
+
+		vao_attributes = chain.from_iterable(VAOAttribute.fromVertexAttribute(self, a)
+		                                     for a in attributes)
+
+		for attribute in vao_attributes:
+			self.attributes[attribute.location] = attribute
+
 		with self:
-			for attribute in self.attributes:
-				#FIXME: Does this need to be called for every index in a matrix/array type?
-				GL.glEnableVertexAttribArray(attribute.location)
+			for location in self.attributes:
+				GL.glEnableVertexAttribArray(location)
 	
 	@property
 	def element_buffer(self):
@@ -55,18 +131,15 @@ class VAO:
 	
 	@element_buffer.setter
 	def element_buffer(self, value):
-		if value.dtype not in element_buffer_dtypes:
+		if value.dtype.base not in element_buffer_dtypes:
 			raise ValueError("Invalid dtype for an element buffer")
 		with self:
 			GL.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, value.buffer.handle)
 		GL.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, 0)
 		self._element_buffer = value
-	
+
 	def __getitem__(self, i):
 		return self.attributes[i]
-	
-	def __iter__(self):
-		return iter(self.attributes)
 
 	def __enter__(self):
 		'''VAO objects provide a context manager. This keeps track of how many times the VAO has
@@ -87,176 +160,78 @@ class VAO:
 		self.bound -= 1
 		if not self.bound:
 			GL.glBindVertexArray(0)
+	
+# So they take the same number of paremeters as GL.glVertexAttribPointer
+def glVertexAttribIPointer(idx, components, type, normalized, stride, offset):
+	GL.glVertexAttribIPointer(idx, components, type, stride, offset)
+def glVertexAttribLPointer(idx, components, type, normalized, stride, offset):
+	GL.glVertexAttribLPointer(idx, components, type, stride, offset)
 
-VertexFormat = namedtuple('VertexFormat', ['components', 'buffer_format', 'offset'])
+class VAOAttribute:
+	'''An attribute that is specified in a VAO.
 
-class VertexAttribute(Variable):
-	"""A vertex attribute.
+	:param vao: The VAO this attribute belongs to.
+	:type vao: :py:class:`.VAO`
+	:param int location: The location (index) of this attribute in the VAO
+	:param scalar_type: The scalar type of one element of this attribute
+	:type scalar_type: :py:class:`.Scalar`
+	:param bool normalized: If the attribute is of a floating-point type,
+	  whether data should be normalized
+	'''
 
-	:param location: The location of this vertex attribute. Will be queried
-	  upon linking if not defined.
-	:type location: :py:obj:`int` or :py:obj:`None`
-	:raises TypeError: If the passed GLSL type is not a :py:class:`.Matrix`,
-	  :py:class:`.Vector` or :py:class:`.Scalar`
-	"""
+	gl_pointer_functions = { Scalar.float: GL.glVertexAttribPointer 
+	                       , Scalar.double: glVertexAttribLPointer
+	                       , Scalar.uint: glVertexAttribIPointer
+	                       , Scalar.bool: GL.glVertexAttribPointer
+	                       , Scalar.int: glVertexAttribIPointer }
 
-	# How does glVertexAttribDivisor work with glVertexBindingDivisor?
-	def __init__(self, name, gl_type, shape=1, location=None, normalized=True):
-		super().__init__(name=name, gl_type=gl_type, shape=shape)
-		# Could also check for base_type attribute
-		if type(self.type) not in {Scalar, Vector, Matrix}:
-			raise TypeError("Invalid type for a vertex attribute.")
-		if location is not None:
-			self.location = location
-			self.location_source = 'shader'
-		else:
-			self.location = None
-			self.location_source = 'dynamic'
-		self._program = None
-		self._binding = None
-		self.normalized = normalized
+	def __init__(self, vao, location, components, scalar_type, divisor=0, normalized=True):
+		self.vao = vao
+		self.location = location
+		self.scalar_type = scalar_type
+		self.components = components
+		self.divisor = divisor
+		self.normalized = bool(normalized)
+		self._data = None
 	
 	@classmethod
-	def fromVariable(cls, var, location=None):
-		raise NotImplementedError("TODO")
-
-	def __str__(self):
-		base = Variable.__str__(self)
-		if self.location is not None:
-			layout = "layout(location={})".format(self.location)
-			return ' '.join((layout, 'in', base))
-		return ' '.join(('in', base))
-
-	#TODO: def __hash__(self):
-
-	gl_type_indices = { s: 1 for s in Scalar }
-	gl_type_indices.update({ v: 1 for v in Vector })
-	gl_type_indices.update({ m: m.shape[0] for m in Matrix })
-
-	@property
-	def type_indices(self):
-		'''The number of vertex attribute indices that would be taken up by the attribute if it
-		consisted of only one array element
-		'''
-		return gl_type_indices[self.type]
+	def fromVertexAttribute(cls, vao, attribute, divisor=0):
+		scalar_type = getattr(attribute.type, 'base', attribute.type).scalar_type
+		return [cls(vao, l, attribute.components, scalar_type, divisor, attribute.normalized)
+		        for l in attribute.locations]
 	
 	@property
-	def indices(self):
-		'''The total number of vertex attribute indices taken up by the attribute.'''
-		return self.type_indices * product(self.shape)
+	def data(self):
+		'''The buffer data backing this vertex attribute. Currently set-only.
 
-	@property
-	def program(self):
-		'''The program this object is part of. Setting to this value will query
-		   the location if it is not explicitly specified.
+		:param value: The data for the attribute.
+		:type value: :py:class:`.BufferItem`
 		'''
-		return self._program
-
-	@program.setter
-	def program(self, program):
-		self._program = program
-		if self.location_source == 'dynamic':
-			self.location = GL.glGetAttribLocation(program.handle, self.name)
-
-	@property
-	def buffer(self):
-		return self._buffer
-
-	@buffer.setter
-	def buffer(self, buffer):
-		if self._buffer is not None:
-			self._buffer.dependents.remove(self)
-		self._buffer = buffer
-		buffer.dependents.add(self)
-
-	@property
-	def binding(self):
-		return self._binding
-
-	@binding.setter
-	def binding(self, binding):
-		if self._binding is not None:
-			self._binding.attributes.remove(self)
-		self._binding = binding
-		self._binding.attributes.add(self)
-
-	def dtype_specification(self, dtype):
-		# TODO: Allow for more complex dtypes - one field per attribute index
-		if dtype.fields is not None:
-			raise ValueError("Vertex attributes must be backed by sub-array dtypes.")
-		if dtype.base not in numpy_buffer_types:
-			raise ValueError("{} is not a valid OpenGL data type.")
-
-		if isinstance(self.type, Scalar):
-			indices = product(dtype.shape)
-			components = 1
-		else:
-			indices = product(dtype.shape[:-1])
-			components = dtype.shape[-1]
-		
-		if not 1 <= components <= 4:
-			raise ValueError("Data type specifies invalid number of components: {}"
-			                 .format(components))
-		if indices < self.indices:
-			raise ValueError("Data type specifies {} attributes, need {}."
-			                 .format(columns, self.type.shape[1]))
-
-		index_offsets = [dtype.base.itemsize * i for i in range(indices)]
-		buffer_formats = repeat(numpy_buffer_types[dtype.base], self.indices)
-		components = repeat(components, self.indices)
-		
-		return [VertexFormat(c, f, o) for c, f, o in
-		        zip(components, buffer_formats, index_offsets) ]
-
-	# TODO: Make assignment to self.binding handle these?
-	def set_binding(self, binding, index=0, item=0):
-		item_dtype = binding.buffer_block.dtype[index]
-		relative_offset = ( sum(binding.buffer_block.dtype[i].itemsize for i in range(index))
-		                  + (item * binding.buffer_block.dtype.itemsize) )
-		
-		vertex_formats = self.dtype_specificiation(item_dtype)
-
-		for index, format in enumerate(vertex_formats):
-			glVertexAttribFormat(self.location + index, format.components
-			                    , format.buffer_format, normalized, format.offset)
-		self.binding = binding
-
-class VertexAttributeBinding:
-	'''A class representing a vertex attribute binding point.
+		return self._data
 	
-	:param int index: The OpenGL binding index. Must be unique and less than
-	  ``GL_MAX_VERTEX_ATTRIB_BINDINGS``.
-	:param int divisor: The divisor for this vertex binding.
-	'''
-	def __init__(self, index, divisor=0):
-		self.index = index
-		self._buffer_block = None
-		self.vertex_attributes = set()
-		self.divisor = divisor
-
-	@property
-	def buffer_block(self):
-		return self._buffer_block
-
-	@buffer_block.setter
-	def buffer_block(self, buffer_block):
-		if self._buffer_block is not None:
-			self._buffer_block.dependents.remove(self)
-		self._buffer_block = buffer_block
-		self._buffer_block.dependents.add(self)
-
+	@data.setter
+	def data(self, value):
+		if value.components < self.components:
+			# Never allow, GL_ARB_vertex_attrib_64bit suggests default values for compatability
+			raise ValueError("Specified only {} components for a vertex attribute expecting {}."
+			                 .format(value.components, self.components))
+		with value.buffer, self.vao:
+			setter = self.gl_pointer_functions[self.scalar_type]
+			setter(self.location, value.components, numpy_buffer_types[value.dtype.base],
+			       self.normalized, value.buffer.stride, GL.GLvoidp(value.offset))
 	@property
 	def divisor(self):
 		return self._divisor
-
+	
 	@divisor.setter
 	def divisor(self, value):
-		GL.glVertexBindingDivisor(self.index, value)
-		self._divisor = value
+		'''The divisor for this vertex attribute. If it is 0, one element of the attribute will be
+		consumed per vertex rendered. If it is non-zero, one element will be consumed for each
+		*divisor* instances of the shader invoked.
 
-	# TODO: Make assignment to self.buffer_block handle these?
-	def bind_buffer_block(self, buffer_block, offset=0):
-		offset = buffer_block.offset + offset * buffer_block.stride
-		GL.glBindVertexBuffer( self.index, buffer_block.buffer.handle
-		                     , offset, buffer_block.stride)
-		self.buffer_block = buffer_block
+		:param int value: The number of instances to render using each value of this attribute, or
+		  ``0`` to use one value per vertex.
+		'''
+		with self.vao:
+			GL.glVertexAttribDivisor(self.location, int(value))
+		self._divisor = value

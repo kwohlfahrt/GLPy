@@ -1,9 +1,9 @@
 from OpenGL import GL
 
-from .uniform import UniformAttribute
+from .uniform import Uniform
 from .vertex import VertexAttribute
 
-from itertools import product
+from itertools import chain
 from collections import namedtuple
 from functools import partial
 from copy import deepcopy
@@ -27,10 +27,12 @@ class Program:
 	:type uniform_blocks: [:py:class:`.UniformBlock`]
 	"""
 
-	def __init__(self, sources, attributes=None, uniforms=None, uniform_blocks=None):
-		self.attributes = deepcopy(attributes) or []
+	def __init__(self, sources, vertex_attributes=None, uniforms=None, uniform_blocks=None):
+		self.vertex_attributes = { v.name: v for v in vertex_attributes or [] }
 		self.uniform_blocks = deepcopy(uniform_blocks) or []
-		self.uniforms = deepcopy(uniforms) or []
+
+		uniforms = (u.resources for u in (uniforms or []))
+		self.uniforms = { uniform.name: uniform for uniform in chain.from_iterable(uniforms) }
 
 		self.bound = 0
 		self.handle = GL.glCreateProgram()
@@ -55,11 +57,13 @@ class Program:
 			log = GL.glGetProgramInfoLog(self.handle).decode()
 			raise RuntimeError("Failed to link program: \n\n{}".format(log))
 
-		for uniform in self.uniforms:
+		for uniform in self.uniforms.values():
 			uniform.program = self
 
-		for attribute in self.attributes:
+		for attribute in self.vertex_attributes.values():
 			attribute.program = self
+
+		# FIXME: Delete shaders when complete
 		
 	def __enter__(self):
 		'''Program provide a context manager that keep track of how many times the program has been

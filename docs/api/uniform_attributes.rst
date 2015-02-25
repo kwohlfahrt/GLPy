@@ -1,7 +1,7 @@
 Uniform Attributes
 ++++++++++++++++++
 
-.. autoclass:: GLPy.uniform.UniformAttribute
+.. autoclass:: GLPy.uniform.Uniform
    :members:
 
 .. autoclass:: GLPy.uniform.UniformBlock

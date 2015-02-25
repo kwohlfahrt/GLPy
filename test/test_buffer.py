@@ -13,6 +13,52 @@ pos = dtype(('float32', 3))
 uv = dtype(('float32', 2))
 col = dtype(('int8', 4))
 
+class BufferItemTest(ContextTest):
+	def test_buffer_item(self):
+		point = dtype([('position', pos), ('UV', uv)])
+		buf = Buffer()
+		buf.target = GL.GL_ARRAY_BUFFER # FIXME, this is ugly
+		buf[...] = dtype((point, 100))
+
+		p = buf.items['position']
+		self.assertEqual(p.offset, 0)
+		self.assertEqual(p.dtype, pos)
+		self.assertEqual(p.components, 3)
+
+		u = buf.items['UV']
+		self.assertEqual(u.offset, 12)
+		self.assertEqual(u.dtype, uv)
+		self.assertEqual(u.components, 2)
+
+	def test_subbuffer_item(self):
+		point = dtype([('position', pos), ('UV', uv)])
+		buf = Buffer()
+		buf.target = GL.GL_ARRAY_BUFFER # FIXME, this is ugly
+		buf[...] = dtype((point, 100))
+		
+		p = buf[10:].items['position']
+		self.assertEqual(p.offset, 200)
+		self.assertEqual(p.dtype, pos)
+		self.assertEqual(p.components, 3)
+
+		u = buf[10:].items['UV']
+		self.assertEqual(u.offset, 212)
+		self.assertEqual(u.dtype, uv)
+		self.assertEqual(u.components, 2)
+	
+	def test_simple_buffer(self):
+		buf = Buffer()
+		buf.target = GL.GL_ARRAY_BUFFER
+		buf[...] = dtype(('float32', (100, 3)))
+		i = buf.items
+		self.assertEqual(i.dtype, dtype(('float32', 3)))
+		self.assertEqual(i.components, 3)
+
+		buf[...] = dtype(('float32', (100, 3)))
+		i = buf.items[0]
+		self.assertEqual(i.dtype, dtype(('float32')))
+		self.assertEqual(i.components, 1)
+
 class BufferIndexingTest(ContextTest):
 	def test_buffer_properties(self):
 		point = dtype([('position', pos), ('UV', uv)])
@@ -69,7 +115,6 @@ class BufferIndexingTest(ContextTest):
 		self.assertEqual(buf[0:1][['position', 'UV']].dtype, dtype((point, (1,))))
 		self.assertEqual(buf[0:1]['position'].dtype, dtype(('float32', (1, 3))))
 		
-
 	def test_multidim_array_buffer_index(self):
 		point = dtype([('position', pos), ('UV', uv)])
 		buf = Buffer()
@@ -101,15 +146,21 @@ class BufferIndexingTest(ContextTest):
 		buf.target = GL.GL_ARRAY_BUFFER
 		buf[...] = buf_type
 
+		self.assertIsNone(buf.stride)
+
 		self.assertEqual(buf[0].nbytes, 2000)
 		self.assertEqual(buf['f0'].nbytes, 2000)
 		self.assertEqual(buf[0].offset, 0)
 		self.assertEqual(buf['f0'].offset, 0)
+		self.assertEqual(buf[0].stride, 20)
+		self.assertEqual(buf['f0'].stride, 20)
 
 		self.assertEqual(buf[1].nbytes, 200)
 		self.assertEqual(buf['f1'].nbytes, 200)
 		self.assertEqual(buf[1].offset, 2000)
 		self.assertEqual(buf['f1'].offset, 2000)
+		self.assertEqual(buf[1].stride, 4)
+		self.assertEqual(buf['f1'].stride, 4)
 
 		with self.assertRaises(IndexError):
 			buf['f0', 'f1']
@@ -198,7 +249,7 @@ class BufferMapTest(ContextTest):
 		np_test.assert_equal(m[1:], numpy.zeros(4, dtype=point))
 		buf.unmap()
 
-	@unittest.skip("TODO: stackoverflow.com/questions/28192703")
+	@unittest.skip("TODO")
 	def test_buffer_unmap_invalidates(self):
 		point = dtype([('position', pos), ('UV', uv)])
 		buf = Buffer()

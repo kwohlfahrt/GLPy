@@ -95,7 +95,7 @@ example, we will use ``GLUT`` to create one.
    GLUT.glutInitContextVersion(3, 3)
    GLUT.glutInitContextProfile(GLUT.GLUT_CORE_PROFILE)
    window_size = (400, 400)
-   GLUT.glutInitWindowSize(*window_size) #* (syntax highlighting)
+   GLUT.glutInitWindowSize(*window_size) #* (reST syntax highlighting)
    GLUT.glutCreateWindow("GLPy")
 
    GL.glClearColor(0, 0, 0, 1)
