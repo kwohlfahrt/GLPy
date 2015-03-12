@@ -1,11 +1,11 @@
 from OpenGL import GL
 from OpenGL.constants import GLboolean,GLint, GLuint, GLfloat, GLdouble
-from itertools import repeat, chain, product as cartesian
+from itertools import repeat, chain, count, product as cartesian
 from collections import OrderedDict
 
 from numpy import dtype
 
-from util.misc import product
+from util.misc import product, roundUp
 from enum import Enum
 
 class BasicType:
@@ -32,6 +32,7 @@ class BasicType:
 			raise ValueError("No such GLSL type.")
 
 scalar_types = ['bool', 'int', 'uint', 'float', 'double']
+
 class Scalar(str, BasicType, Enum):
 	'''The basic GLSL scalars.
 
@@ -42,6 +43,8 @@ class Scalar(str, BasicType, Enum):
 	  3-vector of booleans is a **b**\ vec3
 	*scalar_type*
 	  The scalar type of a scalar is itself
+	*machine_type*
+	  The machine representation of this GLSL type as a :py:class:`numpy.dtype`
 	'''
 
 	__prefixes__ = { 'bool': 'b'
@@ -49,10 +52,17 @@ class Scalar(str, BasicType, Enum):
 	               , 'uint': 'u'
 	               , 'float': ''
 	               , 'double': 'd' }
+	__machine_types__ = {'bool': dtype('uint32')
+						,'int': dtype('int32')
+						,'uint': dtype('uint32')
+						,'float': dtype('float32')
+						,'double': dtype('float64')}
 
 	def __init__(self, value):
 		self.prefix = self.__prefixes__[self.name]
+		self.machine_type = self.__machine_types__[self.name]
 		self.scalar_type = self
+		self.opaque = False
 scalar_doc = Scalar.__doc__
 Scalar = Enum('Scalar', ((s, s) for s in scalar_types), type=Scalar)
 Scalar.__doc__ = scalar_doc
@@ -69,6 +79,7 @@ class Sampler(str, BasicType, Enum):
 
 	def __init__(self, value):
 		self.ndim = self.__ndims__[self.name]
+		self.opaque = True
 Sampler = Enum('Sampler', ((s, s) for s in sampler_types), type=Sampler)
 
 vector_sizes = range(2, 5)
@@ -83,6 +94,8 @@ class Vector(str, BasicType, Enum):
 	  The :py:class:`Scalar` type that defines a single element of the vector
 	*shape*
 	  A 1-tuple of the number of elements in the vector
+	*machine_type*
+	  The machine representation of this GLSL type as a :py:class:`numpy.dtype`
 	'''
 	__scalar_types__ = { "{}vec{}".format(scalar_type.prefix, size): scalar_type
 	                     for scalar_type, size in cartesian(Scalar, vector_sizes) }
@@ -92,6 +105,12 @@ class Vector(str, BasicType, Enum):
 	def __init__(self, value):
 		self.scalar_type = self.__scalar_types__[self.name]
 		self.shape = self.__shapes__[self.name]
+		self.machine_type = dtype((self.scalar_type.machine_type, self.shape))
+		self.opaque = False
+
+	@classmethod
+	def fromType(cls, scalar_type, size):
+		return cls[''.join((scalar_type.prefix, 'vec', str(size)))]
 
 vector_doc = Vector.__doc__
 Vector = Enum('Vector', ((v, v) for v in vector_types), type=Vector)
@@ -128,6 +147,13 @@ class Matrix(str, BasicType, Enum):
 	def __init__(self, value):
 		self.shape = self.__shapes__[self.name]
 		self.scalar_type = self.__scalar_types__[self.name]
+		self.machine_type = dtype((self.scalar_type.machine_type, self.shape))
+		self.opaque = False
+
+	@classmethod
+	def fromType(cls, scalar_type, shape):
+		columns, rows = shape
+		return cls[''.join((scalar_type.prefix, 'mat', str(columns), 'x', str(rows)))]
 
 	@property
 	def rows(self):
@@ -168,7 +194,7 @@ class Struct:
 		return self.contents[idx]
 
 	def __iter__(self):
-		return iter(self.contents)
+		return iter(self.contents.values())
 
 	def __hash__(self):
 		return hash((self.name, tuple(self.contents.items())))
@@ -204,7 +230,7 @@ class Array:
 
 		# Distinguish from 'Vector' and 'Matrix' shapes
 		self.array_shape = shape
-		self.element = Array(base, child_shapes) if child_shapes else base
+		self.element = base if not child_shapes else Array(base, child_shapes)
 
 	@property
 	def full_shape(self):
@@ -288,8 +314,7 @@ class Variable:
 				name = "{}[{}]".format(self.name, idx)
 				yield Variable(name, element_type)
 		elif isinstance(self.type, Struct):
-			for idx in self.type:
-				member = self.type[idx]
+			for member in self.type:
 				name = '.'.join((self.name, member.name))
 				yield Variable(name, member.type)
 		else:
@@ -312,24 +337,23 @@ class Variable:
 		else:
 			return [self]
 
-class BlockMemoryLayout(Enum):
+class BlockLayout(Enum):
 	shared = 1
 	packed = 2
 	std140 = 3
 	std430 = 4
 
-class MatrixMemoryLayout(Enum):
+class MatrixLayout(Enum):
 	column_major = 1
 	row_major = 2
 
-# May have to separate out block and instance for different shader stages.
 class InterfaceBlock:
 	'''A generic interface block.
 
 	Not to be instantiated directly, but as a base for defined block types.
 
 	See :py:class:`InterfaceBlockMember` for additional exceptions that might be raised.
-	
+
 	:param str name: The name of the uniform block
 	:param \\*members: The members of the uniform block. They may not contain
 	  opaque types (e.g. :py:class:`.Sampler`)
@@ -342,17 +366,13 @@ class InterfaceBlock:
 	  larger than (1,)
 	'''
 
-	def __init__(self, name, *members, instance_name='', shape=1, layout='shared'):
+	def __init__(self, name, *members, instance_name='',
+	             layout=BlockLayout.packed, matrix_layout=MatrixLayout.column_major):
 		self.name = name
-		self.members = [InterfaceBlockMember.fromVariable(self, m) for m in members]
+		self.members = {m.name: InterfaceBlockMember.fromVariable(self, m) for m in members}
 		self.instance_name = instance_name
-		try:
-			self.shape = tuple(shape)
-		except TypeError:
-			self.shape = (shape,)
-		if self.shape != (1,) and not self.instance_name:
-			raise ValueError("An interface block may only be an array if it has an instance name.")
-		self.layout = BlockMemoryLayout[layout]
+		self.layout = layout
+		self.matrix_layout = matrix_layout
 
 	@property
 	def dtype(self):
@@ -363,31 +383,50 @@ class InterfaceBlock:
 		else:
 			raise TypeError("The layout for this interface block is not defined.")
 
+	def __iter__(self):
+		yield from self.members
+
+# Cleanup: Arrays contain types, not Variable, so they require special handling here.
 class InterfaceBlockMember(Variable):
 	'''A variable that is a member of an interface block.
 
 	Constructed implicitly from contents passed to a :py:class:`.InterfaceBlock`.
 
+	:param block: The block this member belongs to.
+	:type block: :py:class:`.InterfaceBlockMember`
+	:param matrix_layout: The layout for this member if it is a matrix, or the default layout for
+	  any matrices in this member if it is a struct.
+	:type MatrixLayout: :py:class:`.MatrixLayout`
+
 	:raises TypeError: If it is passed an opaque type as a base'''
-	def __init__(self, block, name, gl_type, shape=1, matrixlayout='column_major'):
-		super().__init__(name, gl_type, shape)
-		if not hasattr(gl_type, 'base_type'):
+	def __init__(self, block, name, gl_type, matrix_layout=None):
+		if isinstance(gl_type, Struct):
+			contents = (InterfaceBlockMember(block, c.name, c.type, matrix_layout) for c in gl_type)
+			gl_type = Struct(gl_type.name, *contents)
+		elif isinstance(gl_type, Array) and isinstance(gl_type.base, Struct):
+			contents = (InterfaceBlockMember(block, c.name, c.type, matrix_layout) for c in gl_type.base)
+			gl_type = Array(Struct(gl_type.base.name, *contents), gl_type.full_shape)
+		super().__init__(name, gl_type)
+
+		if isinstance(gl_type, BasicType) and gl_type.opaque is True:
 			raise TypeError("Interface blocks may not contain opaque types.")
-		if isinstance(self.type, Matrix):
-			self.matrixlayout = MatrixMemoryLayout[matrixlayout]
+		self._matrix_layout = matrix_layout
 		self.block = block
 
 	@classmethod
-	def fromVariable(cls, block, var, layout='column_major'):
+	def fromVariable(cls, block, var, matrix_layout=None):
 		'''Construct from a block and a :py:class:`.Variable`
 
-		:param str block: the block the variable belongs to
-		:param var: the variable describing the block member
+		:param block: The block the variable belongs to
+		:type block: :py:class:`.InterfaceBlock`
+		:param var: The variable describing the block member
 		:type var: :py:class:`.Variable`
+		:param matrix_layout: The matrix layout of this member, or :py:obj:`None` if it is to be
+		  inherited from the parent.
+		:type matrix_layout: :py:class:`MatrixLayout` or :py:obj:`None`
 		'''
-		return cls(block, var.name, var.type, var.shape, layout)
+		return cls(block, var.name, var.type, matrix_layout)
 
-	# TODO: array indices
 	@property
 	def gl_name(self):
 		'''The string used to refer to the block member in a shader'''
@@ -399,3 +438,133 @@ class InterfaceBlockMember(Variable):
 		'''The string used to refer to the block member in the OpenGL API'''
 		return (self.name if not self.block.instance_name
 		        else '.'.join((self.block.name, self.name)))
+
+	@property
+	def matrix_layout(self):
+		if self._matrix_layout is None:
+			return self.block.matrix_layout
+		return self._matrix_layout
+
+	@property
+	def layout(self):
+		return self.block.layout
+
+	@property
+	def alignment(self):
+		'''How the block member is to be aligned. This is only defined if the block layout is
+		:py:obj:`BlockLayout.std140` or :py:obj:`BlockLayout.std430`
+
+		:returns: The alignment of the block member.
+		:rtype: :py:obj:`int`
+		'''
+
+		if self.layout not in (BlockLayout.std140, BlockLayout.std430):
+			raise NotImplementedError("Must query non-std block layouts.")
+
+		if self.layout == BlockLayout.std140:
+			alignment_rounding = Vector.vec4.machine_type.itemsize
+		else:
+			alignment_rounding = 1
+		align_type = self.type
+
+		# Rule 10
+		if isinstance(align_type, Array) and isinstance(align_type.base, Struct):
+			align_type = self.type.base
+
+		# Rule 9
+		if isinstance(align_type, Struct):
+			alignment = max(c.alignment for c in align_type)
+			return roundUp(alignment, alignment_rounding)
+
+		# Rules 5 & 7
+		if isinstance(align_type, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = align_type.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = align_type.shape
+			align_type = Array(Vector.fromType(align_type.scalar_type, components), items)
+		# Rules 6 & 8
+		elif isinstance(align_type, Array) and isinstance(align_type.base, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = align_type.base.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = align_type.base.shape
+			dims = align_type.full_shape + (items,)
+			align_type = Array(Vector.fromType(align_type.base.scalar_type, components), dims)
+
+		if isinstance(align_type, Array):
+			base_type = align_type.base
+		else:
+			base_type = align_type
+
+		# Rule 1
+		if isinstance(base_type, Scalar):
+			alignment = base_type.machine_type.itemsize
+		# Rule 2 & 3
+		elif isinstance(base_type, Vector):
+			item_type, (components,) = base_type.machine_type.subdtype
+			if components == 3:
+				components = 4
+			alignment = item_type.itemsize * components
+
+		# Rule 4
+		if isinstance(align_type, Array):
+			return roundUp(alignment, alignment_rounding)
+		else:
+			return alignment
+
+	@property
+	def dtype(self):
+		if self.layout not in (BlockLayout.std140, BlockLayout.std430):
+			raise NotImplementedError("Must query non-std block layouts.")
+		gl_type = self.type
+
+		# Rule 9
+		if isinstance(gl_type, Struct):
+			content_dtypes = [c.dtype for c in gl_type]
+			content_alignments = [c.alignment for c in gl_type]
+			content_names = [c.name for c in gl_type]
+			content_offsets = []
+			offset = 0
+			for dt, alignment in zip(content_dtypes, content_alignments):
+				offset = roundUp(offset, alignment)
+				content_offsets.append(offset)
+				offset += dt.itemsize
+			struct_size = roundUp(offset, self.alignment)
+			return dtype({'names': content_names, 'formats': content_dtypes,
+			              'offsets': content_offsets, 'itemsize': struct_size})
+
+		# Rules 5 & 7
+		if isinstance(gl_type, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = gl_type.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = gl_type.shape
+			gl_type = Array(Vector.fromType(gl_type.scalar_type, components), items)
+
+		# Rule 6 & 8
+		if isinstance(gl_type, Array) and isinstance(gl_type.base, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = gl_type.base.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = gl_type.base.shape
+			dims = gl_type.full_shape + (items,)
+			gl_type = Array(Vector.fromType(gl_type.base.scalar_type, components), dims)
+
+		# Rule 4 & 10
+		if isinstance(gl_type, Array):
+			if isinstance(gl_type.base, Struct):
+				element_member = InterfaceBlockMember(self.block, self.name, gl_type.base)
+				array_stride = element_member.alignment
+				element_dtype = element_member.dtype
+			else:
+				array_stride = self.alignment
+				element_dtype = gl_type.base.machine_type
+			element_alignment = roundUp(element_dtype.itemsize, array_stride)
+			element_dtype = dtype({'names': [self.name], 'formats': [element_dtype],
+			                       'itemsize': element_alignment})
+			return dtype((element_dtype, gl_type.full_shape))
+
+		# Rule 1, 2 & 3
+		if isinstance(gl_type, Scalar) or isinstance(gl_type, Vector):
+			return gl_type.machine_type

@@ -1,6 +1,7 @@
 from itertools import count, accumulate, chain
 from functools import reduce
 import operator
+from math import ceil
 
 def product(l, acc=1):
 	return reduce(operator.mul, l, acc)
@@ -36,3 +37,6 @@ def contains(subsequence, sequence):
 	# Could optimize, see Boyer-Moore
 	n = len(subsequence)
 	return any(sequence[i:i+n] == subsequence for i in range(len(sequence) - n + 1))
+
+def roundUp(i, base=1):
+	return ceil(i / base) * base

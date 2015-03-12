@@ -60,3 +60,16 @@ class TestContains(unittest.TestCase):
 		self.assertTrue(contains([4, 5], [1, 2, 3, 4, 5]))
 		self.assertFalse(contains([5, 4], [1, 2, 3, 4, 5]))
 		self.assertFalse(contains([1, 3], [1, 2, 3, 4, 5]))
+
+class TestRoundUp(unittest.TestCase):
+	def test_default(self):
+		self.assertEqual(roundUp(2.0), 2)
+		self.assertEqual(roundUp(2.1), 3)
+		self.assertEqual(roundUp(2.8), 3)
+		self.assertEqual(roundUp(1.0), 1)
+		self.assertEqual(roundUp(1.1), 2)
+		self.assertEqual(roundUp(1.8), 2)
+	
+	def test_base(self):
+		self.assertEqual(roundUp(2.0, 4), 4)
+		self.assertEqual(roundUp(7, 4), 8)

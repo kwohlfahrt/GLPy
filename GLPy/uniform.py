@@ -13,19 +13,6 @@ from .datatypes import ( Scalar, Vector, Matrix, Sampler, Variable, BasicType
 
 from .buffers import Buffer
 
-uniform_numpy_types = { Scalar.bool: dtype(GLint)
-                      , Scalar.int: dtype(GLint)
-                      , Scalar.uint: dtype(GLuint)
-                      , Scalar.float: dtype(GLfloat)
-                      , Scalar.double: dtype(GLdouble) }
-uniform_numpy_types.update({ v: dtype((uniform_numpy_types[v.scalar_type], v.shape[0]))
-                              for v in Vector })
-uniform_numpy_types.update({ m: dtype((uniform_numpy_types[m.scalar_type], m.shape))
-                              for m in Matrix })
-uniform_numpy_types.update({ s: dtype(GLint) for s in Sampler})
-# UNIFORM_MATRIX_STRIDE between matrix rows/columns
-# UNIFORM_ARRAY_STRIDE for arrays
-
 uniform_codes = { 'bool': 'i'
                 , 'int': 'i'
                 , 'uint': 'ui'
@@ -118,10 +105,10 @@ class Uniform(Variable):
 
 	@property
 	def dtype(self):
-		try:
-			return uniform_numpy_types[self.type]
-		except KeyError:
-			return dtype((uniform_numpy_types[self.type.base], self.type.array_shape))
+		if isinstance(self.type, Array):
+			return dtype((self.type.base.machine_type, self.type.array_shape))
+		else:
+			return self.type.machine_type
 
 	@property
 	def setter(self):
@@ -203,13 +190,15 @@ def glGetActiveUniformsiv(program, indices, pname):
 	GL.glGetActiveUniformsiv(program, len(indices), indices, pname, out_array)
 	return [i for i in out_array]
 
+# UNIFORM_MATRIX_STRIDE between matrix rows/columns
+# UNIFORM_ARRAY_STRIDE for arrays
+
 # then initialize on binding to a program. Make sure to take proper steps for packed vs shared
 # Test glGetProgramResource*
 class UniformBlock(InterfaceBlock):
 	'''An OpenGL Uniform Block.'''
-	def __init__(self, program, binding, name, *members, instance_name='', shape=1, layout='shared'):
+	def __init__(self, name, *members, instance_name='', layout='shared'):
 		super().__init__(name, *members, instance_name=instance_name, shape=shape, layout=layout)
-		self.program = program
 		self.binding = binding
 
 		self.index = GL.glGetUniformBlockIndex(self.program.handle, self.name)
@@ -242,11 +231,6 @@ class UniformBlockMember(InterfaceBlockMember):
 	@classmethod
 	def fromBlockMember(cls, index, offset, var):
 		return cls(index, offset, var.block, var.name, var.type, var.shape)
-
-	# Shaered with UniformAttribute - common to uniform variables
-	@property
-	def dtype(self):
-		return uniform_numpy_types[self.type]
 
 class UniformBinding:
 	def __init__(self, index):
