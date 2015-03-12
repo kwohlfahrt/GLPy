@@ -386,7 +386,6 @@ class InterfaceBlock:
 	def __iter__(self):
 		yield from self.members
 
-# Cleanup: Arrays contain types, not Variable, so they require special handling here.
 class InterfaceBlockMember(Variable):
 	'''A variable that is a member of an interface block.
 
@@ -465,65 +464,92 @@ class InterfaceBlockMember(Variable):
 			alignment_rounding = Vector.vec4.machine_type.itemsize
 		else:
 			alignment_rounding = 1
-		align_type = self.type
-
-		# Rule 10
-		if isinstance(align_type, Array) and isinstance(align_type.base, Struct):
-			align_type = self.type.base
-
-		# Rule 9
-		if isinstance(align_type, Struct):
-			alignment = max(c.alignment for c in align_type)
-			return roundUp(alignment, alignment_rounding)
-
-		# Rules 5 & 7
-		if isinstance(align_type, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = align_type.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = align_type.shape
-			align_type = Array(Vector.fromType(align_type.scalar_type, components), items)
-		# Rules 6 & 8
-		elif isinstance(align_type, Array) and isinstance(align_type.base, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = align_type.base.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = align_type.base.shape
-			dims = align_type.full_shape + (items,)
-			align_type = Array(Vector.fromType(align_type.base.scalar_type, components), dims)
-
-		if isinstance(align_type, Array):
-			base_type = align_type.base
-		else:
-			base_type = align_type
 
 		# Rule 1
-		if isinstance(base_type, Scalar):
-			alignment = base_type.machine_type.itemsize
+		if isinstance(self.type, Scalar):
+			return self.type.machine_type.itemsize
 		# Rule 2 & 3
-		elif isinstance(base_type, Vector):
-			item_type, (components,) = base_type.machine_type.subdtype
+		elif isinstance(self.type, Vector):
+			item_type, (components,) = self.type.machine_type.subdtype
 			if components == 3:
 				components = 4
-			alignment = item_type.itemsize * components
+			return item_type.itemsize * components
 
 		# Rule 4
-		if isinstance(align_type, Array):
+		if isinstance(self.type, Array) and isinstance(self.type.base, (Scalar, Vector)):
+			align_type = InterfaceBlockMember(self.block, self.name, self.type.base)
+			return roundUp(align_type.alignment, alignment_rounding)
+
+		# Rules 5 & 7
+		if isinstance(self.type, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = self.type.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = self.type.shape
+			align_type = Array(Vector.fromType(self.type.scalar_type, components), items)
+			return InterfaceBlockMember(self.block, self.name, align_type).alignment
+
+		# Rules 6 & 8
+		elif isinstance(self.type, Array) and isinstance(self.type.base, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = self.type.base.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = self.type.base.shape
+			dims = self.type.full_shape + (items,)
+			align_type = Array(Vector.fromType(self.type.base.scalar_type, components), dims)
+			return InterfaceBlockMember(self.block, self.name, align_type).alignment
+
+		# Rule 9
+		if isinstance(self.type, Struct):
+			alignment = max(c.alignment for c in self.type)
 			return roundUp(alignment, alignment_rounding)
-		else:
-			return alignment
+
+		# Rule 10
+		if isinstance(self.type, Array) and isinstance(self.type.base, Struct):
+			return InterfaceBlockMember(self.block, self.name, self.type.base).alignment
 
 	@property
 	def dtype(self):
 		if self.layout not in (BlockLayout.std140, BlockLayout.std430):
 			raise NotImplementedError("Must query non-std block layouts.")
-		gl_type = self.type
+
+		# Rule 1, 2 & 3
+		if isinstance(self.type, Scalar) or isinstance(self.type, Vector):
+			return self.type.machine_type
+
+		# Rule 4
+		if isinstance(self.type, Array) and isinstance(self.type.base, (Scalar, Vector)):
+			array_stride = self.alignment
+			element_dtype = self.type.base.machine_type
+			element_alignment = roundUp(element_dtype.itemsize, array_stride)
+			element_dtype = dtype({'names': [self.type.base.name], 'formats': [element_dtype],
+			                       'itemsize': element_alignment})
+			return dtype((element_dtype, self.type.full_shape))
+
+		# Rules 5 & 7
+		if isinstance(self.type, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = self.type.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = self.type.shape
+			gl_type = Array(Vector.fromType(self.type.scalar_type, components), items)
+			return InterfaceBlockMember(self.block, self.name, gl_type).dtype
+
+		# Rule 6 & 8
+		if isinstance(self.type, Array) and isinstance(self.type.base, Matrix):
+			if self.matrix_layout == MatrixLayout.column_major:
+				items, components = self.type.base.shape
+			elif self.matrix_layout == MatrixLayout.row_major:
+				components, items = self.type.base.shape
+			dims = self.type.full_shape + (items,)
+			gl_type = Array(Vector.fromType(self.type.base.scalar_type, components), dims)
+			return InterfaceBlockMember(self.block, self.name, gl_type).dtype
 
 		# Rule 9
-		if isinstance(gl_type, Struct):
-			content_dtypes = [c.dtype for c in gl_type]
-			content_alignments = [c.alignment for c in gl_type]
-			content_names = [c.name for c in gl_type]
+		if isinstance(self.type, Struct):
+			content_dtypes = [c.dtype for c in self.type]
+			content_alignments = [c.alignment for c in self.type]
+			content_names = [c.name for c in self.type]
 			content_offsets = []
 			offset = 0
 			for dt, alignment in zip(content_dtypes, content_alignments):
@@ -534,37 +560,12 @@ class InterfaceBlockMember(Variable):
 			return dtype({'names': content_names, 'formats': content_dtypes,
 			              'offsets': content_offsets, 'itemsize': struct_size})
 
-		# Rules 5 & 7
-		if isinstance(gl_type, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = gl_type.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = gl_type.shape
-			gl_type = Array(Vector.fromType(gl_type.scalar_type, components), items)
-
-		# Rule 6 & 8
-		if isinstance(gl_type, Array) and isinstance(gl_type.base, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = gl_type.base.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = gl_type.base.shape
-			dims = gl_type.full_shape + (items,)
-			gl_type = Array(Vector.fromType(gl_type.base.scalar_type, components), dims)
-
-		# Rule 4 & 10
-		if isinstance(gl_type, Array):
-			if isinstance(gl_type.base, Struct):
-				element_member = InterfaceBlockMember(self.block, self.name, gl_type.base)
-				array_stride = element_member.alignment
-				element_dtype = element_member.dtype
-			else:
-				array_stride = self.alignment
-				element_dtype = gl_type.base.machine_type
+		# Rule 10
+		if isinstance(self.type, Array) and isinstance(self.type.base, Struct):
+			element_member = InterfaceBlockMember(self.block, self.name, self.type.base)
+			array_stride = element_member.alignment
+			element_dtype = element_member.dtype
 			element_alignment = roundUp(element_dtype.itemsize, array_stride)
-			element_dtype = dtype({'names': [self.name], 'formats': [element_dtype],
+			element_dtype = dtype({'names': [self.type.base.name], 'formats': [element_dtype],
 			                       'itemsize': element_alignment})
-			return dtype((element_dtype, gl_type.full_shape))
-
-		# Rule 1, 2 & 3
-		if isinstance(gl_type, Scalar) or isinstance(gl_type, Vector):
-			return gl_type.machine_type
+			return dtype((element_dtype, self.type.full_shape))

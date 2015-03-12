@@ -161,18 +161,18 @@ class TestInterfaceBlock(unittest.TestCase):
 	def test_matrix_dtype(self):
 		block = InterfaceBlock('Foo', layout=BlockLayout.std140)
 		i = InterfaceBlockMember(block, 'foo', 'mat2x3')
-		element_dtype = dtype({'names': ['foo'], 'formats': [dtype(('float32', (3)))], 'itemsize': 16})
+		element_dtype = dtype({'names': ['vec3'], 'formats': [dtype(('float32', (3)))], 'itemsize': 16})
 		expected = dtype((element_dtype, (2,)))
 		self.assertEqual(i.dtype, expected)
 
 	def test_array_dtype(self):
 		block = InterfaceBlock('Foo', layout=BlockLayout.std140)
 		i = InterfaceBlockMember(block, 'foo', Array('mat2x3', 4))
-		element_dtype = dtype({'names': ['foo'], 'formats': [dtype(('float32', (3)))], 'itemsize': 16})
+		element_dtype = dtype({'names': ['vec3'], 'formats': [dtype(('float32', (3)))], 'itemsize': 16})
 		expected = dtype((element_dtype, (4, 2)))
 		self.assertEqual(i.dtype, expected)
 		i = InterfaceBlockMember(block, 'foo', Array('int', 4))
-		element_dtype = dtype({'names': ['foo'], 'formats': [dtype('int32')], 'itemsize': 16})
+		element_dtype = dtype({'names': ['int'], 'formats': [dtype('int32')], 'itemsize': 16})
 		expected = dtype((element_dtype, (4,)))
 		self.assertEqual(i.dtype, expected)
 
@@ -198,5 +198,5 @@ class TestInterfaceBlock(unittest.TestCase):
 		struct_dtype = dtype({'names': ['f', 'v3'], 'offsets': [0, 16],
 		                      'formats': [dtype('float32'), dtype(('float32', 3))],
 		                      'itemsize': 32})
-		expected = dtype(([('foo', struct_dtype)], 4))
+		expected = dtype(([('Bar', struct_dtype)], 4))
 		self.assertEqual(i.dtype, expected)
