@@ -6,8 +6,7 @@ from OpenGL import GLUT
 import numpy
 from numpy.testing import assert_array_equal
 
-from GLPy import ( Program, Variable, VAO, VertexAttribute
-                 , Buffer, ImmutableTexture )
+from GLPy import ( Program, ImmutableTexture )
 
 class ContextTest(unittest.TestCase):
 	def setUp(self):

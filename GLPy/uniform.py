@@ -8,8 +8,8 @@ from numpy import dtype, nditer, empty
 
 from util.misc import product
 
-from .datatypes import ( Scalar, Vector, Matrix, Sampler, Variable, BasicType
-                       , Struct, Array, InterfaceBlock, InterfaceBlockMember )
+from .GLSL import ( Scalar, Vector, Matrix, Sampler, Variable, BasicType
+                  , Struct, Array, InterfaceBlock, InterfaceBlockMember )
 
 from .buffers import Buffer
 

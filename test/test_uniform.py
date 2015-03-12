@@ -8,7 +8,8 @@ import unittest
 
 from .test_context import ContextTest, readShaders
 
-from GLPy import Program, Uniform, UniformBlock, Variable, Struct, Array
+from GLPy.GLSL import Struct, Array, Variable
+from GLPy import Program, Uniform, UniformBlock, Uniform
 
 class UniformTest(ContextTest):
 	def setUp(self):

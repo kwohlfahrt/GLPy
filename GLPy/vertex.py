@@ -3,8 +3,7 @@ from OpenGL import GL
 from itertools import repeat, chain
 from collections import Counter, namedtuple
 
-from .datatypes import Variable
-from .datatypes import Scalar, Vector, Matrix, BasicType, Array
+from .GLSL import Variable, Scalar, Vector, Matrix, BasicType, Array
 from .buffers import Buffer, numpy_buffer_types, buffer_numpy_types, integer_buffer_types
 
 from util.misc import product, subIter

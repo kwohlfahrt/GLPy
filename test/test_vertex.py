@@ -8,7 +8,8 @@ import unittest
 
 from .test_context import ContextTest, readShaders
 
-from GLPy import Program, Variable, Array, VAO, Buffer, VertexAttribute, Scalar
+from GLPy.GLSL import Variable, Array, Scalar
+from GLPy import Program, VAO, Buffer, VertexAttribute
 from GLPy.vertex import VAOAttribute
 
 class VertexAttributeTest(unittest.TestCase):
