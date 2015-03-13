@@ -19,10 +19,10 @@ class BasicType:
 	True
 	'''
 
-	def __new__(self, gl_type):
+	def __new__(self, datatype):
 		for basic_type in [Scalar, Vector, Matrix, Sampler]:
 			try:
-				return basic_type[gl_type]
+				return basic_type[datatype]
 			except KeyError:
 				pass
 		else:

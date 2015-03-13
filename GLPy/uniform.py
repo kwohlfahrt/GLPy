@@ -54,8 +54,8 @@ class Uniform(Variable):
 	:type location: :py:obj:`int` or :py:obj:`None`
 	'''
 
-	def __init__(self, name, gl_type, location=None):
-		super().__init__(name=name, gl_type=gl_type)
+	def __init__(self, name, datatype, location=None):
+		super().__init__(name=name, datatype=datatype)
 		self._program = None
 		self.shader_location = location
 		self.dynamic_location = None
@@ -67,7 +67,7 @@ class Uniform(Variable):
 		:returns: The uniform attributes defined by a variable
 		:rtype: [:py:class:`UniformAttribute`]
 		'''
-		return cls(var.name, var.type, location)
+		return cls(var.name, var.datatype, location)
 
 	@property
 	def resources(self):
@@ -105,26 +105,26 @@ class Uniform(Variable):
 
 	@property
 	def dtype(self):
-		if isinstance(self.type, Array):
-			return dtype((self.type.base.machine_type, self.type.array_shape))
+		if isinstance(self.datatype, Array):
+			return dtype((self.datatype.base.machine_type, self.datatype.array_shape))
 		else:
-			return self.type.machine_type
+			return self.datatype.machine_type
 
 	@property
 	def setter(self):
 		'''The OpenGL function used to set a uniform attribute of this type'''
 		try:
-			return setter_functions[self.type]
+			return setter_functions[self.datatype]
 		except KeyError:
-			return setter_functions[self.type.element]
+			return setter_functions[self.datatype.element]
 
 	@property
 	def getter(self):
 		'''The OpenGL function used to read a uniform attribute of this type'''
 		try:
-			return getter_functions[self.type]
+			return getter_functions[self.datatype]
 		except KeyError:
-			return getter_functions[self.type.element]
+			return getter_functions[self.datatype.element]
 
 	@property
 	def data(self):
@@ -171,7 +171,7 @@ class Uniform(Variable):
 			raise ValueError("Incorrect data type for uniform variable, expecting {}, got {}"
 			                 .format(dtype.base, value.dtype))
 
-		count = getattr(self.type, 'array_shape', 1)
+		count = getattr(self.datatype, 'array_shape', 1)
 		with self.program:
 			self.setter(self.location, count, value)
 
@@ -223,14 +223,14 @@ class UniformBlock(InterfaceBlock):
 
 # Should not be instantiated directly
 class UniformBlockMember(InterfaceBlockMember):
-	def __init__(self, index, offset, block, name, gl_type, shape=1):
-		super().__init__(block, name, gl_type, shape)
+	def __init__(self, index, offset, block, name, datatype, shape=1):
+		super().__init__(block, name, datatype, shape)
 		self.index = index
 		self.offset = offset
 	
 	@classmethod
 	def fromBlockMember(cls, index, offset, var):
-		return cls(index, offset, var.block, var.name, var.type, var.shape)
+		return cls(index, offset, var.block, var.name, var.datatype, var.shape)
 
 class UniformBinding:
 	def __init__(self, index):

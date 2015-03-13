@@ -25,10 +25,10 @@ class VertexAttribute(Variable):
 	program = None #: The program containing this attribute
 
 	# How does glVertexAttribDivisor work with glVertexBindingDivisor?
-	def __init__(self, name, gl_type, shader_location=None, normalized=True):
-		super().__init__(name=name, gl_type=gl_type)
+	def __init__(self, name, datatype, shader_location=None, normalized=True):
+		super().__init__(name=name, datatype=datatype)
 		# Could also check for base_type attribute
-		base_type = getattr(self.type, 'base', self.type)
+		base_type = getattr(self.datatype, 'base', self.datatype)
 		if not isinstance(base_type, BasicType):
 			raise TypeError("Invalid type for a vertex attribute.")
 		self.shader_location = shader_location
@@ -40,7 +40,7 @@ class VertexAttribute(Variable):
 	
 	@classmethod
 	def fromVariable(cls, var, shader_location=None, normalized=True):
-		return cls(var.name, var.type, shader_location, normalized)
+		return cls(var.name, var.datatype, shader_location, normalized)
 
 	def __str__(self):
 		base = super().__str__()
@@ -49,16 +49,16 @@ class VertexAttribute(Variable):
 			return ' '.join((layout, 'in', base))
 		return ' '.join(('in', base))
 
-	gl_type_indices = { s: 1 for s in Scalar }
-	gl_type_indices.update({ v: 1 for v in Vector })
-	gl_type_indices.update({ m: m.shape[0] for m in Matrix })
+	type_indices = { s: 1 for s in Scalar }
+	type_indices.update({ v: 1 for v in Vector })
+	type_indices.update({ m: m.shape[0] for m in Matrix })
 
 	@property
 	def indices(self):
 		'''The total number of vertex attribute indices taken up by the attribute.'''
-		gl_type = getattr(self.type, 'base', self.type)
-		element_indices = getattr(gl_type, 'columns', 1)
-		array_shape = getattr(self.type, 'full_shape', (1,))
+		datatype = getattr(self.datatype, 'base', self.datatype)
+		element_indices = getattr(datatype, 'columns', 1)
+		array_shape = getattr(self.datatype, 'full_shape', (1,))
 		return element_indices * product(array_shape)
 
 	@property
@@ -79,12 +79,12 @@ class VertexAttribute(Variable):
 	def components(self):
 		'''The maximum number of components of a single attribute index of this type.'''
 
-		gl_type = getattr(self.type, 'base', self.type)
-		return getattr(gl_type, 'shape', (1,))[-1]
+		datatype = getattr(self.datatype, 'base', self.datatype)
+		return getattr(datatype, 'shape', (1,))[-1]
 
 # These types are valid OpenGL data types for glDrawElements
 gl_element_buffer_types = { GL.GL_UNSIGNED_BYTE, GL.GL_UNSIGNED_SHORT, GL.GL_UNSIGNED_INT }
-element_buffer_dtypes = { buffer_numpy_types[gl_type] for gl_type in gl_element_buffer_types }
+element_buffer_dtypes = { buffer_numpy_types[datatype] for datatype in gl_element_buffer_types }
 
 class VAO:
 	'''A class to represent VAO objects.
@@ -195,7 +195,7 @@ class VAOAttribute:
 	
 	@classmethod
 	def fromVertexAttribute(cls, vao, attribute, divisor=0):
-		scalar_type = getattr(attribute.type, 'base', attribute.type).scalar_type
+		scalar_type = getattr(attribute.datatype, 'base', attribute.datatype).scalar_type
 		return [cls(vao, l, attribute.components, scalar_type, divisor, attribute.normalized)
 		        for l in attribute.locations]
 	
