@@ -1,11 +1,7 @@
 from OpenGL import GL
 
-from .uniform import Uniform
 from .vertex import VertexAttribute
 
-from itertools import chain
-from collections import namedtuple
-from functools import partial
 from copy import deepcopy
 
 gl_shader_types = { 'vertex': GL.GL_VERTEX_SHADER
@@ -27,12 +23,9 @@ class Program:
 	:type uniform_blocks: [:py:class:`.UniformBlock`]
 	"""
 
-	def __init__(self, sources, vertex_attributes=None, uniforms=None, uniform_blocks=None):
+	def __init__(self, sources, vertex_attributes=None, uniform_blocks=None):
 		self.vertex_attributes = { v.name: v for v in vertex_attributes or [] }
 		self.uniform_blocks = deepcopy(uniform_blocks) or []
-
-		uniforms = (u.resources for u in (uniforms or []))
-		self.uniforms = { uniform.name: uniform for uniform in chain.from_iterable(uniforms) }
 
 		self.bound = 0
 		self.handle = GL.glCreateProgram()
@@ -51,14 +44,13 @@ class Program:
 
 		self.link()
 
+	# TODO: Re-linking shaders not considered idiomatic in modern OpenGL, so
+	# get rid of this as seperate from __init__
 	def link(self):
 		GL.glLinkProgram(self.handle)
 		if GL.glGetProgramiv(self.handle, GL.GL_LINK_STATUS) == GL.GL_FALSE:
 			log = GL.glGetProgramInfoLog(self.handle).decode()
 			raise RuntimeError("Failed to link program: \n\n{}".format(log))
-
-		for uniform in self.uniforms.values():
-			uniform.program = self
 
 		for attribute in self.vertex_attributes.values():
 			attribute.program = self
