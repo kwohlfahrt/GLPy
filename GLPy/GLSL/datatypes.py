@@ -42,6 +42,8 @@ class Scalar(str, BasicType, Enum):
 	  The scalar type of a scalar is itself
 	*machine_type*
 	  The machine representation of this GLSL type as a :py:class:`numpy.dtype`
+	*opaque*
+	  Whether the datatype is an opaque type (:py:obj:`False`)
 	'''
 
 	__prefixes__ = { 'bool': 'b'
@@ -71,13 +73,22 @@ sampler_data_types = {Scalar.float, Scalar.int, Scalar.uint}
 sampler_types = [ "{}sampler{}D".format(scalar_type.prefix, ndim)
                   for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) ]
 class Sampler(str, BasicType, Enum):
+	'''The GLSL sampler types.
+
+	Scalars difine the following attributes:
+
+	*opaque*
+	  Whether the datatype is an opaque type (:py:obj:`True`)
+	'''
 	__ndims__ = { "{}sampler{}D".format(scalar_type.prefix, ndim): ndim
 	              for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) }
 
 	def __init__(self, value):
 		self.ndim = self.__ndims__[self.name]
 		self.opaque = True
+sampler_doc = Sampler.__doc__
 Sampler = Enum('Sampler', ((s, s) for s in sampler_types), type=Sampler)
+Sampler.__doc__ = sampler_doc
 
 vector_sizes = range(2, 5)
 vector_types = ["{}vec{}".format(scalar_type.prefix, size)
@@ -93,6 +104,8 @@ class Vector(str, BasicType, Enum):
 	  A 1-tuple of the number of elements in the vector
 	*machine_type*
 	  The machine representation of this GLSL type as a :py:class:`numpy.dtype`
+	*opaque*
+	  Whether the datatype is an opaque type (:py:obj:`False`)
 	'''
 	__scalar_types__ = { "{}vec{}".format(scalar_type.prefix, size): scalar_type
 	                     for scalar_type, size in cartesian(Scalar, vector_sizes) }
@@ -127,6 +140,8 @@ class Matrix(str, BasicType, Enum):
 	  The :py:class:`Scalar` type that defines a single element of the matrix
 	*shape*
 	  A 2-tuple of the number of elements along each dimension
+	*opaque*
+	  Whether the datatype is an opaque type (:py:obj:`False`)
 	'''
 
 	__scalar_types__ = { "{}mat{}".format(scalar_type.prefix, size): scalar_type
@@ -185,12 +200,24 @@ class Struct:
 		return "{}(name='{}' contents={})".format(type(self).__name__, self.name, self.contents)
 
 	def __len__(self):
+		'''Returns the number of members of the struct.
+
+		:rtype: :py:obj:`int`
+		'''
 		return len(self.contents)
 
 	def __getitem__(self, idx):
+		'''Returns a member of the struct.
+
+		:rtype: :py:class:`.Variable`
+		'''
 		return self.contents[idx]
 
 	def __iter__(self):
+		'''Iterates over the members of the struct.
+
+		:rtype: [:py:class:`.Variable`]
+		'''
 		return iter(self.contents.values())
 
 	def __hash__(self):
@@ -223,9 +250,8 @@ class Array:
 		try:
 			shape, *child_shapes = shape
 		except TypeError:
-			child_shapes = False
+			child_shapes = ()
 
-		# Distinguish from 'Vector' and 'Matrix' shapes
 		self.array_shape = shape
 		self.element = base if not child_shapes else Array(base, child_shapes)
 
@@ -243,14 +269,26 @@ class Array:
 		return ''.join((self.base.name, formatShape(self.full_shape)))
 
 	def __getitem__(self, idx):
+		'''Returns an element of the array.
+
+		:rtype: :py:class:`BasicType` or :py:class:`Struct` or :py:class:`Array`
+		'''
 		if not 0 <= idx < self.array_shape:
 			raise IndexError("No such array element '{}'".format(idx))
 		return self.element # All elements identical
 
 	def __len__(self):
+		'''Returns the numer of elements in the array
+
+		:rtype: :py:obj:`int`
+		'''
 		return self.array_shape
 
 	def __iter__(self):
+		'''Iterates over all elements in the array.
+
+		:rtype: [:py:class:`BasicType`] or [:py:class:`Struct`] or [:py:class:`Array`]
+		'''
 		return iter(repeat(self.element, self.array_shape))
 
 	def __eq__(self, other):

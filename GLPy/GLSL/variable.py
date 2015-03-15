@@ -36,6 +36,12 @@ class Variable:
 		return hash((self.name, self.datatype))
 
 	def __getitem__(self, idx):
+		'''Return a member or element of this variable if it is of an indexable datatype.
+
+		:rtype: :py:class:`.Variable`
+
+		:raises TypeError: If the Variable is not of an indexable datatype.
+		'''
 		if isinstance(self.datatype, Array):
 			name = "{}[{}]".format(self.name, idx)
 			return Variable(name, self.datatype[idx])
@@ -50,6 +56,12 @@ class Variable:
 		return len(self.datatype)
 
 	def __iter__(self):
+		'''Iterate over the members or elements of this variable if it is of an iterable datatype.
+
+		:rtype: [:py:class:`.Variable`]
+
+		:raises TypeError: If the Variable is not of an indexable datatype.
+		'''
 		if isinstance(self.datatype, Array):
 			for idx, element_type in enumerate(self.datatype):
 				name = "{}[{}]".format(self.name, idx)
@@ -65,7 +77,6 @@ class Variable:
 	def resources(self):
 		'''The resources that would be defined by this variable, assuming it is active
 
-		:returns: The resources that would be defined by this variable.
 		:rtype: [:py:class:`Variable`] where the type of each variable is :py:class:`BasicType`.
 		'''
 		if isinstance(self.datatype, Array):

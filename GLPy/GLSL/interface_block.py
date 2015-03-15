@@ -5,49 +5,66 @@ from util.misc import roundUp
 from numpy import dtype
 
 from enum import Enum
+from collections import OrderedDict
 
 class BlockLayout(Enum):
-	shared = 1
-	packed = 2
-	std140 = 3
-	std430 = 4
+	'''The valid layouts for interface blocks.
+
+	Defines the following attributes:
+
+	*standardized*
+	  Whether the memory layout of a a block of this layout can be determined in advance (i.e.
+	  without runtime queries)
+	'''
+	def __init__(self, value):
+		self.standardized = self.name.startswith('std')
+
+	shared = 'shared'
+	packed = 'packed'
+	std140 = 'std140'
+	std430 = 'std430'
 
 class MatrixLayout(Enum):
-	column_major = 1
-	row_major = 2
+	'''The valid options for matrix layouts in interface blocks and interface block members.'''
+
+	column_major = 'column_major'
+	row_major = 'row_major'
 
 class InterfaceBlock:
 	'''A generic interface block.
 
 	Not to be instantiated directly, but as a base for defined block types.
 
-	See :py:class:`InterfaceBlockMember` for additional exceptions that might be raised.
-
 	:param str name: The name of the uniform block
 	:param \\*members: The members of the uniform block. They may not contain
 	  opaque types (e.g. :py:class:`.Sampler`)
 	:type \\*members: :py:class:`.Variable`
 	:param str instance_name: The name of the instance
-	:param shape: The shape of the variable.
-	:type shape: [:py:obj:`int`]
 	:param layout: The layout of the interface block
+	:type layout: :py:class:`BlockLayout`
+	:param matrix_layout: The matrix layout of the interface block
+	:type matrix_layout: :py:class:`MatrixLayout`
 	:raises ValueError: If an instance name is not defined and the block has a shape
 	  larger than (1,)
+	:raises: See :py:class:`InterfaceBlockMember` for additional exceptions that might be raised.
 	'''
 
 	def __init__(self, name, *members, instance_name='',
 	             layout=BlockLayout.packed, matrix_layout=MatrixLayout.column_major):
 		self.name = name
-		self.members = {m.name: InterfaceBlockMember.fromVariable(self, m) for m in members}
 		self.instance_name = instance_name
-		self.layout = layout
-		self.matrix_layout = matrix_layout
+		self.layout = BlockLayout(layout)
+		self.matrix_layout = MatrixLayout(matrix_layout)
+
+		members = ((m.name, InterfaceBlockMember.fromVariable(self, m)) for m in members)
+		if self.layout.standardized:
+			self.members = OrderedDict(members)
+		else:
+			self.members = dict(members)
 
 	@property
 	def dtype(self):
-		if self.layout == BlockMemoryLayout.std140:
-			raise NotImplementedError("TODO")
-		elif self.layout == BlockMemoryLayout.std430:
+		if self.layout.standardized:
 			raise NotImplementedError("TODO")
 		else:
 			raise TypeError("The layout for this interface block is not defined.")
@@ -55,32 +72,26 @@ class InterfaceBlock:
 	def __iter__(self):
 		yield from self.members
 
+	def __getitem__(self, idx):
+		return self.members[idx]
+
 class InterfaceBlockMember(Variable):
 	'''A variable that is a member of an interface block.
-
-	Constructed implicitly from contents passed to a :py:class:`.InterfaceBlock`.
 
 	:param block: The block this member belongs to.
 	:type block: :py:class:`.InterfaceBlockMember`
 	:param matrix_layout: The layout for this member if it is a matrix, or the default layout for
 	  any matrices in this member if it is a struct.
-	:type MatrixLayout: :py:class:`.MatrixLayout`
+	:type matrix_layout: :py:class:`.MatrixLayout` or :py:obj:`None`
 
 	:raises TypeError: If it is passed an opaque type as a base
 	'''
 	def __init__(self, block, name, datatype, matrix_layout=None):
-		if isinstance(datatype, Struct):
-			contents = (InterfaceBlockMember(block, c.name, c.datatype, matrix_layout)
-			            for c in datatype)
-			datatype = Struct(datatype.name, *contents)
-		elif isinstance(datatype, Array) and isinstance(datatype.base, Struct):
-			contents = (InterfaceBlockMember(block, c.name, c.datatype, matrix_layout)
-			            for c in datatype.base)
-			datatype = Array(Struct(datatype.base.name, *contents), datatype.full_shape)
-		super().__init__(name, datatype)
-
-		if isinstance(datatype, BasicType) and datatype.opaque is True:
+		if isinstance(datatype, BasicType) and datatype.opaque:
 			raise TypeError("Interface blocks may not contain opaque types.")
+		super().__init__(name, datatype)
+		if matrix_layout is None:
+			matrix_layout = block.matrix_layout
 		self._matrix_layout = matrix_layout
 		self.block = block
 
@@ -100,8 +111,25 @@ class InterfaceBlockMember(Variable):
 		'''
 		return cls(block, var.name, var.datatype, matrix_layout)
 
+	def __getitem__(self, idx):
+		''':rtype: :py:class:`InterfaceBlockMember`'''
+		var = super().__getitem__(idx)
+		return InterfaceBlockMember.fromVariable(self.block, var, self._matrix_layout)
+
+	def __iter__(self):
+		''':rtype: [:py:class:`InterfaceBlockMember`]'''
+		yield from (InterfaceBlockMember.fromVariable(self.block, var, self._matrix_layout)
+		            for var in super().__iter__())
+
 	@property
-	def gl_name(self):
+	def matrix_layout(self):
+		''':rtype: :py:class:`MatrixLayout`'''
+		if self._matrix_layout is None:
+			return self.block.matrix_layout
+		return self._matrix_layout
+
+	@property
+	def glsl_name(self):
 		'''The string used to refer to the block member in a shader
 
 		:rtype: :py:obj:`str`
@@ -119,25 +147,19 @@ class InterfaceBlockMember(Variable):
 		        else '.'.join((self.block.name, self.name)))
 
 	@property
-	def matrix_layout(self):
-		if self._matrix_layout is None:
-			return self.block.matrix_layout
-		return self._matrix_layout
-
-	@property
 	def layout(self):
 		return self.block.layout
 
 	@property
 	def alignment(self):
-		'''How the block member is to be aligned. This is only defined if the block layout is
-		:py:obj:`BlockLayout.std140` or :py:obj:`BlockLayout.std430`
+		'''How the block member is to be aligned. Returns :py:obj:`None` if the layout of the block
+		containing this object is not a standardized layout.
 
-		:rtype: :py:obj:`int`
+		:rtype: :py:obj:`int` or :py:obj:`None`
 		'''
 
 		if self.layout not in (BlockLayout.std140, BlockLayout.std430):
-			raise NotImplementedError("Must query non-std block layouts.")
+			return None
 
 		if self.layout == BlockLayout.std140:
 			alignment_rounding = Vector.vec4.machine_type.itemsize
@@ -156,7 +178,7 @@ class InterfaceBlockMember(Variable):
 
 		# Rule 4
 		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, (Scalar, Vector)):
-			align_type = InterfaceBlockMember(self.block, self.name, self.datatype.base)
+			align_type = self[0]
 			return roundUp(align_type.alignment, alignment_rounding)
 
 		# Rules 5 & 7
@@ -180,18 +202,19 @@ class InterfaceBlockMember(Variable):
 
 		# Rule 9
 		if isinstance(self.datatype, Struct):
-			alignment = max(c.alignment for c in self.datatype)
+			alignment = max(c.alignment for c in self)
 			return roundUp(alignment, alignment_rounding)
 
 		# Rule 10
 		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, Struct):
-			return InterfaceBlockMember(self.block, self.name, self.datatype.base).alignment
+			return self[0].alignment
 
 	@property
 	def dtype(self):
 		'''The numpy datatype used to represent this block member in a buffer.
 
 		:rtype: :py:class:`numpy.dtype`
+		:raises TypeError: If the block layout is not a standard layout.
 		'''
 		if self.layout not in (BlockLayout.std140, BlockLayout.std430):
 			raise NotImplementedError("Must query non-std block layouts.")
@@ -230,21 +253,21 @@ class InterfaceBlockMember(Variable):
 
 		# Rule 9
 		if isinstance(self.datatype, Struct):
-			content_dtypes = [c.dtype for c in self.datatype]
-			content_alignments = [c.alignment for c in self.datatype]
-			content_names = [c.name for c in self.datatype]
+			content_names = [c.name for c in self]
+			content_dtypes = [c.dtype for c in self]
 			content_offsets = []
 			offset = 0
-			for dt, alignment in zip(content_dtypes, content_alignments):
-				offset = roundUp(offset, alignment)
+			for c in self:
+				offset = roundUp(offset, c.alignment)
 				content_offsets.append(offset)
-				offset += dt.itemsize
+				offset += c.dtype.itemsize
 			struct_size = roundUp(offset, self.alignment)
 			return dtype({'names': content_names, 'formats': content_dtypes,
 			              'offsets': content_offsets, 'itemsize': struct_size})
 
 		# Rule 10
 		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, Struct):
+			# CLEANUP: Define recursively for any array data type?
 			element_member = InterfaceBlockMember(self.block, self.name, self.datatype.base)
 			array_stride = element_member.alignment
 			element_dtype = element_member.dtype

@@ -61,3 +61,20 @@ class TestVariable(unittest.TestCase):
 						 for i, j in cartesian(range(5), range(6)) ]
 		sa_resources = list(chain.from_iterable(sa_resources))
 		self.assertEqual(struct_array_var.resources, sa_resources)
+
+	def test_indexing(self):
+		v = Variable('noindex', 'float')
+		with self.assertRaises(TypeError):
+			v[0]
+		v = Variable('array', Array('float', (3, 4)))
+		self.assertEqual(v[1], Variable('array[1]', Array('float', 4)))
+		self.assertEqual(v[1][3], Variable('array[1][3]', 'float'))
+		with self.assertRaises(IndexError):
+			v[3]
+		struct_type = Struct('Foo', Variable('f', 'float'))
+		v = Variable('foo', struct_type)
+		self.assertEqual(v['f'], Variable('foo.f', 'float'))
+		with self.assertRaises(KeyError):
+			v['b']
+		with self.assertRaises(KeyError):
+			v[0]

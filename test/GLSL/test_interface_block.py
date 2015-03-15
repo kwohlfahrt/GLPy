@@ -6,6 +6,18 @@ from itertools import product as cartesian
 from GLPy.GLSL.interface_block import *
 
 class TestInterfaceBlock(unittest.TestCase):
+	def test_naming(self):
+		baz = Struct('Baz', Variable('f', 'float'), Variable('v3', 'vec3'))
+		block_members = [ Variable('b', baz), Variable('f', 'float'), Variable('bs', Array(baz, 3)),
+		                  Variable('m4s', Array('mat4', 3))]
+		block = InterfaceBlock('IBlock', *block_members, layout='std140')
+		self.assertEqual(block['b'].api_name, 'b')
+		self.assertEqual(block['b'].glsl_name, 'b')
+		block = InterfaceBlock('IBlock', *block_members, instance_name='blockiname', layout='std140')
+		self.assertEqual(block['b'].api_name, 'IBlock.b')
+		self.assertEqual(block['b'].glsl_name, 'blockiname.b')
+
+class TestInterfaceBlockMember(unittest.TestCase):
 	def test_vector_alignment(self):
 		block = InterfaceBlock('Foo', layout=BlockLayout.std140)
 		i = InterfaceBlockMember(block, 'foo', 'float')
@@ -79,13 +91,13 @@ class TestInterfaceBlock(unittest.TestCase):
 		block = InterfaceBlock('Foo', layout=BlockLayout.std140)
 		struct = Struct('Bar', Variable('v3', 'vec3'), Variable('f', 'float'))
 		i = InterfaceBlockMember(block, 'foo', struct)
-		expected = dtype({'names': ['v3', 'f'], 'offsets': [0, 12],
+		expected = dtype({'names': ['foo.v3', 'foo.f'], 'offsets': [0, 12],
 		                  'formats': [dtype(('float32', 3)), dtype('float32')],
 		                  'itemsize': 16})
 		self.assertEqual(i.dtype, expected)
 		struct = Struct('Bar', Variable('f', 'float'), Variable('v3', 'vec3'))
 		i = InterfaceBlockMember(block, 'foo', struct)
-		expected = dtype({'names': ['f', 'v3'], 'offsets': [0, 16],
+		expected = dtype({'names': ['foo.f', 'foo.v3'], 'offsets': [0, 16],
 		                  'formats': [dtype('float32'), dtype(('float32', 3))],
 		                  'itemsize': 32})
 		self.assertEqual(i.dtype, expected)
@@ -94,7 +106,7 @@ class TestInterfaceBlock(unittest.TestCase):
 		block = InterfaceBlock('Foo', layout=BlockLayout.std140)
 		struct = Struct('Bar', Variable('f', 'float'), Variable('v3', 'vec3'))
 		i = InterfaceBlockMember(block, 'foo', Array(struct, 4))
-		struct_dtype = dtype({'names': ['f', 'v3'], 'offsets': [0, 16],
+		struct_dtype = dtype({'names': ['foo.f', 'foo.v3'], 'offsets': [0, 16],
 		                      'formats': [dtype('float32'), dtype(('float32', 3))],
 		                      'itemsize': 32})
 		expected = dtype(([('Bar', struct_dtype)], 4))
