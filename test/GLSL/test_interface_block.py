@@ -17,7 +17,22 @@ class TestInterfaceBlock(unittest.TestCase):
 		self.assertEqual(block['b'].api_name, 'IBlock.b')
 		self.assertEqual(block['b'].glsl_name, 'blockiname.b')
 
+	def test_opaque_error(self):
+		struct = Struct('Baz', Variable('s2d', 'sampler2D'), Variable('v3', 'vec3'))
+		with self.assertRaises(TypeError):
+			InterfaceBlock('IBlock', Variable('baz', struct), Variable('f', 'float'))
+		with self.assertRaises(TypeError):
+			InterfaceBlock('IBlock', Variable('s2d', 'sampler2D'), Variable('f', 'float'))
+
 class TestInterfaceBlockMember(unittest.TestCase):
+	def test_opaque_error(self):
+		block = InterfaceBlock('Foo')
+		with self.assertRaises(TypeError):
+			InterfaceBlockMember(block, 'foo', 'sampler2D')
+		struct = Struct('Baz', Variable('s2d', 'sampler2D'), Variable('v3', 'vec3'))
+		with self.assertRaises(TypeError):
+			InterfaceBlockMember(block, 'foo', struct)
+
 	def test_vector_alignment(self):
 		block = InterfaceBlock('Foo', layout=BlockLayout.std140)
 		i = InterfaceBlockMember(block, 'foo', 'float')

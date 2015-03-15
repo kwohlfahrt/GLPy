@@ -77,7 +77,8 @@ class Variable:
 	def resources(self):
 		'''The resources that would be defined by this variable, assuming it is active
 
-		:rtype: [:py:class:`Variable`] where the type of each variable is :py:class:`BasicType`.
+		:rtype: [:py:class:`Variable`] where the type of each variable is :py:class:`BasicType`, or
+		  a :py:class:`Array` of basic types.
 		'''
 		if isinstance(self.datatype, Array):
 			if isinstance(self.datatype.element, BasicType):

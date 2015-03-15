@@ -87,13 +87,11 @@ class InterfaceBlockMember(Variable):
 	:raises TypeError: If it is passed an opaque type as a base
 	'''
 	def __init__(self, block, name, datatype, matrix_layout=None):
-		if isinstance(datatype, BasicType) and datatype.opaque:
-			raise TypeError("Interface blocks may not contain opaque types.")
 		super().__init__(name, datatype)
-		if matrix_layout is None:
-			matrix_layout = block.matrix_layout
 		self._matrix_layout = matrix_layout
 		self.block = block
+		if any(getattr(r.datatype, 'base', r.datatype).opaque for r in self.resources):
+			raise TypeError("Interface blocks may not contain opaque types.")
 
 	@classmethod
 	def fromVariable(cls, block, var, matrix_layout=None):
