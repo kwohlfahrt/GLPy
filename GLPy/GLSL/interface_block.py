@@ -30,51 +30,6 @@ class MatrixLayout(Enum):
 	column_major = 'column_major'
 	row_major = 'row_major'
 
-class InterfaceBlock:
-	'''A generic interface block.
-
-	Not to be instantiated directly, but as a base for defined block types.
-
-	:param str name: The name of the uniform block
-	:param \\*members: The members of the uniform block. They may not contain
-	  opaque types (e.g. :py:class:`.Sampler`)
-	:type \\*members: :py:class:`.Variable`
-	:param str instance_name: The name of the instance
-	:param layout: The layout of the interface block
-	:type layout: :py:class:`BlockLayout`
-	:param matrix_layout: The matrix layout of the interface block
-	:type matrix_layout: :py:class:`MatrixLayout`
-	:raises ValueError: If an instance name is not defined and the block has a shape
-	  larger than (1,)
-	:raises: See :py:class:`InterfaceBlockMember` for additional exceptions that might be raised.
-	'''
-
-	def __init__(self, name, *members, instance_name='',
-	             layout=BlockLayout.packed, matrix_layout=MatrixLayout.column_major):
-		self.name = name
-		self.instance_name = instance_name
-		self.layout = BlockLayout(layout)
-		self.matrix_layout = MatrixLayout(matrix_layout)
-
-		members = ((m.name, InterfaceBlockMember.fromVariable(self, m)) for m in members)
-		if self.layout.standardized:
-			self.members = OrderedDict(members)
-		else:
-			self.members = dict(members)
-
-	@property
-	def dtype(self):
-		if self.layout.standardized:
-			raise NotImplementedError("TODO")
-		else:
-			raise TypeError("The layout for this interface block is not defined.")
-
-	def __iter__(self):
-		yield from self.members
-
-	def __getitem__(self, idx):
-		return self.members[idx]
-
 class InterfaceBlockMember(Variable):
 	'''A variable that is a member of an interface block.
 
@@ -88,14 +43,14 @@ class InterfaceBlockMember(Variable):
 	'''
 	def __init__(self, block, name, datatype, matrix_layout=None):
 		super().__init__(name, datatype)
-		self._matrix_layout = matrix_layout
+		self.shader_matrix_layout = matrix_layout
 		self.block = block
 		if any(getattr(r.datatype, 'base', r.datatype).opaque for r in self.resources):
 			raise TypeError("Interface blocks may not contain opaque types.")
 
 	@classmethod
 	def fromVariable(cls, block, var, matrix_layout=None):
-		'''Construct from a block and a :py:class:`.Variable`
+		'''Construct from a block and a :py:class:`.Variable`.
 
 		:param block: The block the variable belongs to
 		:type block: :py:class:`.InterfaceBlock`
@@ -110,21 +65,24 @@ class InterfaceBlockMember(Variable):
 		return cls(block, var.name, var.datatype, matrix_layout)
 
 	def __getitem__(self, idx):
-		''':rtype: :py:class:`InterfaceBlockMember`'''
 		var = super().__getitem__(idx)
-		return InterfaceBlockMember.fromVariable(self.block, var, self._matrix_layout)
+		return InterfaceBlockMember.fromVariable(self.block, var, self.shader_matrix_layout)
 
 	def __iter__(self):
 		''':rtype: [:py:class:`InterfaceBlockMember`]'''
-		yield from (InterfaceBlockMember.fromVariable(self.block, var, self._matrix_layout)
+		yield from (InterfaceBlockMember.fromVariable(self.block, var, self.shader_matrix_layout)
 		            for var in super().__iter__())
+
+	def __eq__(self, other):
+		return ( super().__eq__(other) and self.block == other.block
+		       and self.matrix_layout == other.matrix_layout )
 
 	@property
 	def matrix_layout(self):
 		''':rtype: :py:class:`MatrixLayout`'''
-		if self._matrix_layout is None:
+		if self.shader_matrix_layout is None:
 			return self.block.matrix_layout
-		return self._matrix_layout
+		return self.shader_matrix_layout
 
 	@property
 	def glsl_name(self):
@@ -273,3 +231,63 @@ class InterfaceBlockMember(Variable):
 			element_dtype = dtype({'names': [self.datatype.base.name], 'formats': [element_dtype],
 			                       'itemsize': element_alignment})
 			return dtype((element_dtype, self.datatype.full_shape))
+
+class InterfaceBlock:
+	'''A generic interface block.
+
+	Not to be instantiated directly, but as a base for defined block types.
+
+	:param str name: The name of the uniform block
+	:param \\*members: The members of the uniform block. They may not contain
+	  opaque types (e.g. :py:class:`.Sampler`)
+	:type \\*members: :py:class:`.Variable`
+	:param str instance_name: The name of the instance
+	:param layout: The layout of the interface block
+	:type layout: :py:class:`BlockLayout`
+	:param matrix_layout: The matrix layout of the interface block
+	:type matrix_layout: :py:class:`MatrixLayout`
+	:raises ValueError: If an instance name is not defined and the block has a shape
+	  larger than (1,)
+	:raises: See :py:class:`InterfaceBlockMember` for additional exceptions that might be raised.
+	'''
+
+	member_type = InterfaceBlockMember
+
+	def __init__(self, name, *members, instance_name='', layout='packed',
+	             matrix_layout='column_major'):
+		self.name = name
+		self.instance_name = instance_name
+		self.layout = BlockLayout(layout)
+		self.matrix_layout = MatrixLayout(matrix_layout)
+
+		members = ((m.name, self.member_type.fromVariable(self, m)) for m in members)
+		if self.layout.standardized:
+			self.members = OrderedDict(members)
+		else:
+			self.members = dict(members)
+
+	@property
+	def dtype(self):
+		'''The memory layout of the uniform block.
+
+		:rtype: :py:class:`numpy.dtype`
+		:raises TypeError: If the block layout is not a standard layout.
+		'''
+
+		if self.layout.standardized:
+			offsets = []
+			offset = 0
+			for m in self:
+				offset = roundUp(offset, m.alignment)
+				offsets.append(offset)
+				offset += m.dtype.itemsize
+			names, formats = zip(*((m.name, m.dtype) for m in self))
+			return dtype({'names': list(names), 'formats': list(formats), 'offsets': offsets})
+		else:
+			raise TypeError("The layout for this interface block is not defined.")
+
+	def __iter__(self):
+		yield from self.members.values()
+
+	def __getitem__(self, idx):
+		return self.members[idx]

@@ -25,6 +25,16 @@ class TestInterfaceBlock(unittest.TestCase):
 			InterfaceBlock('IBlock', Variable('s2d', 'sampler2D'), Variable('f', 'float'))
 
 class TestInterfaceBlockMember(unittest.TestCase):
+	def test_from_var(self):
+		block = InterfaceBlock('Foo')
+		v = Variable('f', 'float')
+		self.assertEqual(InterfaceBlockMember.fromVariable(block, v),
+		                 InterfaceBlockMember(block, 'f', 'float'))
+		self.assertEqual(InterfaceBlockMember.fromVariable(block, v, 'row_major'),
+		                 InterfaceBlockMember(block, 'f', 'float', 'row_major'))
+		self.assertNotEqual(InterfaceBlockMember.fromVariable(block, v, 'row_major'),
+		                 InterfaceBlockMember(block, 'f', 'float'))
+
 	def test_opaque_error(self):
 		block = InterfaceBlock('Foo')
 		with self.assertRaises(TypeError):
