@@ -39,6 +39,12 @@ class TestStruct(unittest.TestCase):
 		self.assertEqual(s['first'], Variable('first', 'vec3'))
 		self.assertEqual(s['second'], Variable('second', Array('float', (4, 5))))
 
-class TestBasicType(unittest.TestCase):
+class TestVector(unittest.TestCase):
 	def test_machine_type(self):
 		self.assertEqual(Vector('vec3').machine_type, dtype(('float32', 3)))
+
+class TestArray(unittest.TestCase):
+	def test_indexing(self):
+		self.assertEqual(Matrix('mat3x2')[2], Vector('vec2'))
+		with self.assertRaises(IndexError):
+			Matrix('mat3x2')[3]

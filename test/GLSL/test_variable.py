@@ -66,6 +66,10 @@ class TestVariable(unittest.TestCase):
 		v = Variable('noindex', 'float')
 		with self.assertRaises(TypeError):
 			v[0]
+		v = Variable('matrix', 'mat3x2')
+		v[2], Variable('matrix[2]', Vector('vec2'))
+		with self.assertRaises(IndexError):
+			v[3]
 		v = Variable('array', Array('float', (3, 4)))
 		self.assertEqual(v[1], Variable('array[1]', Array('float', 4)))
 		self.assertEqual(v[1][3], Variable('array[1][3]', 'float'))

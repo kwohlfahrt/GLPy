@@ -42,7 +42,7 @@ class Variable:
 
 		:raises TypeError: If the Variable is not of an indexable datatype.
 		'''
-		if isinstance(self.datatype, Array):
+		if isinstance(self.datatype, (Matrix, Array)):
 			name = "{}[{}]".format(self.name, idx)
 			return Variable(name, self.datatype[idx])
 		elif isinstance(self.datatype, Struct):

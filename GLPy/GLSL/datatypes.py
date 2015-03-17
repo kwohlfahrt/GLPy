@@ -174,6 +174,11 @@ class Matrix(str, BasicType, Enum):
 	@property
 	def columns(self):
 		return self.shape[0]
+
+	def __getitem__(self, idx):
+		if idx >= self.shape[0]:
+			raise IndexError("Index {} out of bounds for {}".format(idx, self))
+		return Vector.fromType(self.scalar_type, self.shape[1])
 matrix_doc = Matrix.__doc__
 Matrix = Enum('Matrix', ((m, m) for m in matrix_types), type=Matrix)
 Matrix.__doc__ = matrix_doc
