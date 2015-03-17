@@ -19,6 +19,8 @@ class UniformBlock(InterfaceBlock):
 	def __init__(self, name, *members, instance_name='', layout='shared', matrix_layout='row_major',
 	             binding=None):
 		super().__init__(name, *members, instance_name=instance_name, layout=layout)
+		if self.layout == BlockLayout.std430:
+			raise ValueError("Uniform Blocks may not have a 'std430' layout.")
 		self.shader_binding = binding
 
 	def __str__(self):

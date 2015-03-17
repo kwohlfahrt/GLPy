@@ -103,6 +103,19 @@ class InterfaceBlockMember(Variable):
 		        else '.'.join((self.block.name, self.name)))
 
 	@property
+	def matrix_stride(self):
+		if not (isinstance(self.datatype, Matrix) and self.layout.standardized):
+			raise TypeError("Not a matrix with standardized layout.")
+		# FIXME: doubles?
+		return self.alignment
+
+	@property
+	def array_stride(self):
+		if not (isinstance(self.datatype, Array) and self.layout.standardized):
+			raise TypeError("Not an array with standardized layout.")
+		return roundUp(self[0].dtype.itemsize, self.alignment)
+
+	@property
 	def layout(self):
 		return self.block.layout
 
@@ -132,10 +145,9 @@ class InterfaceBlockMember(Variable):
 				components = 4
 			return item_type.itemsize * components
 
-		# Rule 4
-		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, (Scalar, Vector)):
-			align_type = self[0]
-			return roundUp(align_type.alignment, alignment_rounding)
+		# Rule 4, 6, 7 & 10
+		if isinstance(self.datatype, Array):
+			return roundUp(self[0].alignment, alignment_rounding)
 
 		# Rules 5 & 7
 		if isinstance(self.datatype, Matrix):
@@ -146,24 +158,10 @@ class InterfaceBlockMember(Variable):
 			align_type = Array(Vector.fromType(self.datatype.scalar_type, components), items)
 			return InterfaceBlockMember(self.block, self.name, align_type).alignment
 
-		# Rules 6 & 8
-		elif isinstance(self.datatype, Array) and isinstance(self.datatype.base, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = self.datatype.base.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = self.datatype.base.shape
-			dims = self.datatype.full_shape + (items,)
-			align_type = Array(Vector.fromType(self.datatype.base.scalar_type, components), dims)
-			return InterfaceBlockMember(self.block, self.name, align_type).alignment
-
 		# Rule 9
 		if isinstance(self.datatype, Struct):
 			alignment = max(c.alignment for c in self)
 			return roundUp(alignment, alignment_rounding)
-
-		# Rule 10
-		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, Struct):
-			return self[0].alignment
 
 	@property
 	def dtype(self):
@@ -172,65 +170,50 @@ class InterfaceBlockMember(Variable):
 		:rtype: :py:class:`numpy.dtype`
 		:raises TypeError: If the block layout is not a standard layout.
 		'''
-		if self.layout not in (BlockLayout.std140, BlockLayout.std430):
-			raise NotImplementedError("Must query non-std block layouts.")
 
 		# Rule 1, 2 & 3
-		if isinstance(self.datatype, Scalar) or isinstance(self.datatype, Vector):
+		if isinstance(self.datatype, (Scalar, Vector)):
 			return self.datatype.machine_type
 
-		# Rule 4
-		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, (Scalar, Vector)):
-			array_stride = self.alignment
-			element_dtype = self.datatype.base.machine_type
-			element_alignment = roundUp(element_dtype.itemsize, array_stride)
-			element_dtype = dtype({'names': [self.datatype.base.name], 'formats': [element_dtype],
-			                       'itemsize': element_alignment})
-			return dtype((element_dtype, self.datatype.full_shape))
+		# Rule 10 could be defined separately to be consisted with packed/shared layout dtypes.
+		# However, all members are guaranteed to be preserved in standard formats, and this produces
+		# dtypes that are easier to work with
+
+		# Rule 4, 6, 8 & 10
+		if isinstance(self.datatype, Array):
+			element = self[0]
+			item_dtype = element.dtype
+			if isinstance(element.datatype, BasicType):
+				item_dtype = dtype({'names': [element.datatype.name], 'formats': [item_dtype],
+									'itemsize': self.array_stride})
+			return dtype((item_dtype, len(self)))
 
 		# Rules 5 & 7
 		if isinstance(self.datatype, Matrix):
 			if self.matrix_layout == MatrixLayout.column_major:
+				item_dim = 'column'
 				items, components = self.datatype.shape
 			elif self.matrix_layout == MatrixLayout.row_major:
+				item_dim = 'row'
 				components, items = self.datatype.shape
-			datatype = Array(Vector.fromType(self.datatype.scalar_type, components), items)
-			return InterfaceBlockMember(self.block, self.name, datatype).dtype
-
-		# Rule 6 & 8
-		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = self.datatype.base.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = self.datatype.base.shape
-			dims = self.datatype.full_shape + (items,)
-			datatype = Array(Vector.fromType(self.datatype.base.scalar_type, components), dims)
-			return InterfaceBlockMember(self.block, self.name, datatype).dtype
+			item_dtype = Vector.fromType(self.datatype.scalar_type, components).machine_type
+			item_dtype = dtype({'names': ['-'.join((self.datatype.name, item_dim))],
+			                    'formats': [item_dtype], 'itemsize': self.matrix_stride})
+			return dtype((item_dtype, items))
 
 		# Rule 9
 		if isinstance(self.datatype, Struct):
-			content_names = [c.name for c in self]
-			content_dtypes = [c.dtype for c in self]
-			content_offsets = []
+			names = [c.name for c in self]
+			dtypes = [c.dtype for c in self]
+			offsets = []
 			offset = 0
 			for c in self:
 				offset = roundUp(offset, c.alignment)
-				content_offsets.append(offset)
+				offsets.append(offset)
 				offset += c.dtype.itemsize
 			struct_size = roundUp(offset, self.alignment)
-			return dtype({'names': content_names, 'formats': content_dtypes,
-			              'offsets': content_offsets, 'itemsize': struct_size})
-
-		# Rule 10
-		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, Struct):
-			# CLEANUP: Define recursively for any array data type?
-			element_member = InterfaceBlockMember(self.block, self.name, self.datatype.base)
-			array_stride = element_member.alignment
-			element_dtype = element_member.dtype
-			element_alignment = roundUp(element_dtype.itemsize, array_stride)
-			element_dtype = dtype({'names': [self.datatype.base.name], 'formats': [element_dtype],
-			                       'itemsize': element_alignment})
-			return dtype((element_dtype, self.datatype.full_shape))
+			return dtype({'names': names, 'formats': dtypes, 'offsets': offsets,
+			              'itemsize': struct_size})
 
 class InterfaceBlock:
 	'''A generic interface block.

@@ -69,6 +69,24 @@ class ProgramUniformBlockMember(UniformBlockMember):
 		return offset.value
 	
 	@property
+	def matrix_stride(self):
+		if not self.layout.standardized:
+			stride = GL.GLint()
+			stride = GL.glGetActiveUniformsiv(self.program.handle, 1, self.index,
+											GL.GL_UNIFORM_MATRIX_STRIDE, c.byref(matrix_stride))
+			return stride.value
+		return super().matrix_stride
+
+	@property
+	def array_stride(self):
+		if not self.layout.standardized:
+			stride = GL.GLint()
+			stride = GL.glGetActiveUniformsiv(self.program.handle, 1, self.index,
+			                                  GL.GL_UNIFORM_ARRAY_STRIDE, c.byref(matrix_stride))
+			return stride.value
+		return super().array_stride
+
+	@property
 	def dtype(self):
 		'''The numpy datatype used to represent this buffer block member in a buffer. Unlike the
 		implementation on :py:class:`InterfaceBlockMember`, this does not raise an exception for
@@ -76,42 +94,14 @@ class ProgramUniformBlockMember(UniformBlockMember):
 
 		:rtype: :py:class:`numpy.dtype`
 		'''
-		if self.layout in (BlockLayout.std140, BlockLayout.std430):
-			return super().dtype
-
-		if isinstance(self.datatype, Array) and isinstance(self.datatype.base, BasicType):
-			array_stride = GL.GLint()
-			array_stride = GL.glGetActiveUniformsiv(self.program.handle, 1, self.index,
-													GL.GL_UNIFORM_ARRAY_STRIDE, c.byref(array_stride))
-			array_stride = array_stride.value
-		if isinstance(getattr(self.datatype, 'base', self.datatype), Matrix):
-			matrix_stride = GL.GLint()
-			matrix_stride = GL.glGetActiveUniformsiv(self.program.handle, 1, self.index,
-													GL.GL_UNIFORM_MATRIX_STRIDE, c.byref(matrix_stride))
-			matrix_stride = matrix_stride.value
-
-		if isinstance(self.datatype, (Scalar, Vector)):
-			return self.datatype.machine_type
-		elif isinstance(self.datatype, Matrix):
-			if self.matrix_layout == MatrixLayout.column_major:
-				items, components = self.datatype.shape
-			elif self.matrix_layout == MatrixLayout.row_major:
-				components, items = self.datatype.shape
-			item_dtype = Vector.fromType(self.datatype.scalar_type, components).machine_type
-			item_dtype = dtype({'names': [self.datatype.name], 'formats': [item_dtype],
-			                    'itemsize': matrix_stride})
-			return dtype((item_dtype, items))
-		elif isinstance(self.datatype, Array) and isinstance(self.datatype.base, BasicType):
-			item_dtype = ProgramUniformBlockMember(self.block, self.name, self.datatype.base).dtype
-			item_dtype = dtype({'names': [self.datatype.base.name], 'formats': [item_dtype],
-			                    'itemsize': array_stride})
-			return dtype((item_dtype, self.datatype.full_shape))
-		elif ( isinstance(self.datatype, Array) and isinstance(self.datatype.base, Struct)
-		     or isinstance(getattr(self.datatype, 'base', self.datatype), Struct) ):
+		if isinstance(getattr(self.datatype, 'base', self.datatype), Struct):
 			# Have to process each member separately, as members can be removed in optimization pass
+			# TODO: Is layout of array elements guaranteed to be identical for shared uniforms?
 			names, formats, offsets = zip(*((m.name, m.dtype, m.offset) for m in self))
 			offsets = (o - self.offset for o in offsets)
 			return dtype({'names': list(names), 'formats': list(formats), 'offsets': list(offsets)})
+		else:
+			return super().dtype
 
 class ProgramUniformBlock(UniformBlock):
 	member_type = ProgramUniformBlockMember
@@ -122,8 +112,6 @@ class ProgramUniformBlock(UniformBlock):
 		self.dynamic_binding = None
 		super().__init__(name, *members, instance_name=instance_name, layout=layout,
 		                 matrix_layout=matrix_layout, binding=binding)
-		if self.layout == BlockLayout.std430:
-			raise ValueError("Uniform Blocks may not have a 'std430' layout.")
 
 	@classmethod
 	def fromUniformBlock(cls, program, block):

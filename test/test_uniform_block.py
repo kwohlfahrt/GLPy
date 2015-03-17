@@ -44,7 +44,7 @@ class UniformBlockTest(ContextTest):
 		self.assertEqual(self.program.uniform_blocks['InstancedUB'].binding, 4)
 	
 	def test_dtype(self):
-		mat4_dtype = dtype((dtype([('vec4', 'float32', 4)]), 4))
+		mat4_dtype = dtype((dtype([('mat4-column', 'float32', 4)]), 4))
 		anonymous_ub_dtype = dtype([('m4', mat4_dtype), ('b', 'uint32')])
 		self.assertEqual(self.program.uniform_blocks['AnonymousUB'].dtype, anonymous_ub_dtype)
 		packed_dtype = self.program.uniform_blocks['InstancedUB'].dtype
