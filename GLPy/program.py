@@ -11,7 +11,6 @@ gl_shader_types = { 'vertex': GL.GL_VERTEX_SHADER
                   , 'tesselation control': GL.GL_TESS_CONTROL_SHADER
                   , 'tesselation evaluation': GL.GL_TESS_EVALUATION_SHADER }
 
-#TODO: Allow re-setting sources
 class Program:
 	"""An OpenGL program.
 	
@@ -30,31 +29,29 @@ class Program:
 		if self.handle == 0:
 			raise RuntimeError("Failed to create OpenGL program.")
 
-		for shader_type, src in sources.items():
-			gl_shader_type = gl_shader_types[shader_type]
-			shader = GL.glCreateShader(gl_shader_type)
-			GL.glShaderSource(shader, src)
-			GL.glCompileShader(shader) 
-			if GL.glGetShaderiv(shader, GL.GL_COMPILE_STATUS) == GL.GL_FALSE:
-				log = GL.glGetShaderInfoLog(shader).decode()
-				raise RuntimeError("Failed to compile {} shader: \n\n{}".format(shader_type, log))
-			GL.glAttachShader(self.handle, shader)
+		shader_handles = [GL.glCreateShader(gl_shader_types[shader_type]) for shader_type in sources]
+		try:
+			for shader, src in zip(shader_handles, sources.values()):
+				GL.glShaderSource(shader, src)
+				GL.glCompileShader(shader) 
+				if GL.glGetShaderiv(shader, GL.GL_COMPILE_STATUS) == GL.GL_FALSE:
+					log = GL.glGetShaderInfoLog(shader).decode()
+					raise RuntimeError("Failed to compile {} shader: \n\n{}".format(shader_type, log))
+				GL.glAttachShader(self.handle, shader)
 
-		# TODO: Move to after link, so attributes can always be queried where necessary.
-		self.link()
+			GL.glLinkProgram(self.handle)
+			if GL.glGetProgramiv(self.handle, GL.GL_LINK_STATUS) == GL.GL_FALSE:
+				log = GL.glGetProgramInfoLog(self.handle).decode()
+				raise RuntimeError("Failed to link program: \n\n{}".format(log))
+		finally:
+			for shader in shader_handles:
+				GL.glDeleteShader(shader)
+
 		self.uniform_blocks = { ub.name: ProgramUniformBlock.fromUniformBlock(self, ub)
 		                        for ub in uniform_blocks or []}
 		self.vertex_attributes = { v.name: ProgramVertexAttribute.fromVertexAttribute(self, v)
 		                           for v in vertex_attributes or [] }
 
-	# TODO: Get rid of this as separate form __init__, considered bad form in modern OpenGL
-	def link(self):
-		GL.glLinkProgram(self.handle)
-		if GL.glGetProgramiv(self.handle, GL.GL_LINK_STATUS) == GL.GL_FALSE:
-			log = GL.glGetProgramInfoLog(self.handle).decode()
-			raise RuntimeError("Failed to link program: \n\n{}".format(log))
-		# FIXME: Delete shaders when complete
-		
 	def __enter__(self):
 		'''Program provide a context manager that keep track of how many times the program has been
 		bound and unbound. Grouping operations on a program within a context where it is bound
