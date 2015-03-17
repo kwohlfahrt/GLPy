@@ -152,6 +152,8 @@ class Buffer:
 
 	@property
 	def items(self):
+		'''Returns the items in the buffer, suitable for passing to a :py:class:`VAOAttribute`'''
+
 		return BufferItem.fromBuffer(self)
 
 	@property
@@ -256,6 +258,7 @@ class SubBuffer:
 
 	@property
 	def items(self):
+		'''Returns the items in the buffer, suitable for passing to a :py:class:`VAOAttribute`'''
 		return BufferItem.fromBuffer(self)
 
 	def map(self, access=(GL.GL_MAP_READ_BIT | GL.GL_MAP_WRITE_BIT )):

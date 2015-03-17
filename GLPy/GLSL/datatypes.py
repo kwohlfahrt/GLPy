@@ -15,6 +15,10 @@ class BasicType:
 
 	It supports construction from a string representation of the GLSL type for convenience:
 
+	.. testsetup::
+
+	   from GLPy.GLSL import BasicType, Vector
+
 	>>> BasicType('vec3') is Vector.vec3
 	True
 	'''

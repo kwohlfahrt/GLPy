@@ -8,42 +8,15 @@ import unittest
 
 from .test_context import ContextTest, readShaders
 
-from GLPy.GLSL import Variable, Array, Scalar
-from GLPy import Program, VAO, Buffer, VertexAttribute
+from GLPy.GLSL import Variable, Array, Scalar, VertexAttribute
+from GLPy import Program, VAO, Buffer
 from GLPy.vertex import VAOAttribute
-
-class VertexAttributeTest(unittest.TestCase):
-	def test_indices(self):
-		v = VertexAttribute('foo', 'int')
-		self.assertEqual(v.indices, 1)
-
-		v = VertexAttribute('foo', 'vec3')
-		self.assertEqual(v.indices, 1)
-
-		v = VertexAttribute('foo', 'mat4')
-		self.assertEqual(v.indices, 4)
-
-		v = VertexAttribute('foo', 'mat2x3')
-		self.assertEqual(v.indices, 2)
-
-	def test_components(self):
-		v = VertexAttribute('foo', 'int')
-		self.assertEqual(v.components, 1)
-
-		v = VertexAttribute('foo', 'vec3')
-		self.assertEqual(v.components, 3)
-
-		v = VertexAttribute('foo', 'mat4')
-		self.assertEqual(v.components, 4)
-
-		v = VertexAttribute('foo', 'mat2x3')
-		self.assertEqual(v.components, 3)
 
 class VAOAttributeTest(ContextTest):
 	def test_from_vertex_attrib(self):
 		vao = VAO()
 
-		va = VertexAttribute('position', 'vec4', shader_location=3)
+		va = VertexAttribute('position', 'vec4', location=3)
 		vs = VAOAttribute.fromVertexAttribute(vao, va)
 		self.assertEqual(len(vs), 1)
 		self.assertEqual(vs[0].location, 3)
@@ -51,19 +24,19 @@ class VAOAttributeTest(ContextTest):
 		self.assertEqual(vs[0].components, 4)
 		self.assertEqual(vs[0].scalar_type, Scalar.float)
 
-		va = VertexAttribute('position', 'uvec2', shader_location=3)
+		va = VertexAttribute('position', 'uvec2', location=3)
 		vs = VAOAttribute.fromVertexAttribute(vao, va)
 		self.assertEqual(len(vs), 1)
 		self.assertEqual(vs[0].components, 2)
 		self.assertEqual(vs[0].scalar_type, Scalar.uint)
 
-		va = VertexAttribute('position', 'int', shader_location=3)
+		va = VertexAttribute('position', 'int', location=3)
 		vs = VAOAttribute.fromVertexAttribute(vao, va, divisor=1)
 		self.assertEqual(vs[0].divisor, 1)
 		self.assertEqual(vs[0].components, 1)
 		self.assertEqual(vs[0].scalar_type, Scalar.int)
 
-		va = VertexAttribute('position', 'mat3x2', shader_location=3)
+		va = VertexAttribute('position', 'mat3x2', location=3)
 		vs = VAOAttribute.fromVertexAttribute(vao, va, divisor=1)
 		self.assertEqual(len(vs), 3)
 		for i, v in enumerate(vs):

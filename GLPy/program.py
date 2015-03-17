@@ -1,6 +1,6 @@
 from OpenGL import GL
 
-from .vertex import VertexAttribute
+from .vertex import ProgramVertexAttribute
 from .uniform_block import ProgramUniformBlock
 
 from copy import deepcopy
@@ -41,23 +41,18 @@ class Program:
 			GL.glAttachShader(self.handle, shader)
 
 		# TODO: Move to after link, so attributes can always be queried where necessary.
-		self.vertex_attributes = { v.name: v for v in vertex_attributes or [] }
 		self.link()
 		self.uniform_blocks = { ub.name: ProgramUniformBlock.fromUniformBlock(self, ub)
 		                        for ub in uniform_blocks or []}
+		self.vertex_attributes = { v.name: ProgramVertexAttribute.fromVertexAttribute(self, v)
+		                           for v in vertex_attributes or [] }
 
-	# TODO: Re-linking shaders not considered idiomatic in modern OpenGL, so
-	# get rid of this as seperate from __init__
+	# TODO: Get rid of this as separate form __init__, considered bad form in modern OpenGL
 	def link(self):
 		GL.glLinkProgram(self.handle)
 		if GL.glGetProgramiv(self.handle, GL.GL_LINK_STATUS) == GL.GL_FALSE:
 			log = GL.glGetProgramInfoLog(self.handle).decode()
 			raise RuntimeError("Failed to link program: \n\n{}".format(log))
-
-		# FIXME: Do the same as for UniformBlocks and make separate GLSL/api classes
-		for attribute in self.vertex_attributes.values():
-			attribute.program = self
-
 		# FIXME: Delete shaders when complete
 		
 	def __enter__(self):
