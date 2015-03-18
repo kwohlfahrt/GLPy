@@ -95,18 +95,18 @@ The various OpenGL constructs, such as vertex arrays and buffers have their own 
    projection_buffer = Buffer()
    element_buffer = Buffer()
    vertex_buffer = Buffer()
-   projection_buffer.target = GL.GL_UNIFORM_BUFFER
-   element_buffer.target = GL.GL_ELEMENT_ARRAY_BUFFER
-   vertex_buffer.target = GL.GL_ARRAY_BUFFER
 
 An empty buffer is allocated for the projection uniforms, and data is uploaded directly for the
 element and vertex buffers.
 
 .. testcode:: sample
 
-   projection_buffer[...] = projection.dtype
-   element_buffer[...] = indices
-   vertex_buffer[...] = cube
+   with projection_buffer.bind(GL.GL_UNIFORM_BUFFER):
+      projection_buffer[...] = projection.dtype
+   with element_buffer.bind(GL.GL_ELEMENT_ARRAY_BUFFER):
+      element_buffer[...] = indices
+   with vertex_buffer.bind(GL.GL_ARRAY_BUFFER):
+      vertex_buffer[...] = cube
 
 Then the uniforms buffer contents are set, and vertex data is added to the the VAO.
 
@@ -115,8 +115,9 @@ Then the uniforms buffer contents are set, and vertex data is added to the the V
    from util import xform
    from math import radians
 
-   projection_buffer['model_camera'].data = xform.lookAt((0, 0, 3)).astype('float32')
-   projection_buffer['camera_clip'].data = xform.perspective(radians(90)).astype('float32')
+   with projection_buffer.bind(GL.GL_UNIFORM_BUFFER):
+      projection_buffer['model_camera'].data = xform.lookAt((0, 0, 3)).astype('float32')
+      projection_buffer['camera_clip'].data = xform.perspective(radians(90)).astype('float32')
 
    vao.element_buffer = element_buffer
    vao[program.vertex_attributes['position'].location].data = vertex_buffer.items
@@ -126,8 +127,6 @@ Finally, the following code will display the geometry
 .. testcode:: sample
 
    program.uniform_blocks['Projection'].binding = 0
-   # TODO: This should be fixed in GLPy
-   GL.glBindBufferBase(GL.GL_UNIFORM_BUFFER, 0, projection_buffer.handle)
 
    def display():
        import ctypes as c
@@ -176,4 +175,5 @@ mouse will rotate the cube
    GLUT.glutMouseFunc(mousebutton)
    GLUT.glutMotionFunc(mousemove)
 
-   GLUT.glutMainLoop()
+   with projection_buffer.bind(GL.GL_UNIFORM_BUFFER, program.uniform_blocks['Projection'].binding):
+      GLUT.glutMainLoop()

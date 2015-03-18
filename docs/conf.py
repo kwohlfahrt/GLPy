@@ -35,7 +35,7 @@ intersphinx_mapping = {'python3': ('http://docs.python.org/3.4/', None)
                       ,'numpy': ('http://docs.scipy.org/doc/numpy/', None)}
 
 rst_epilog = '''
-.. |buffer-bind| replace:: :ref:`Binds a buffer <buffer-bind-warning>`
+.. |buffer-bind| replace:: This method requires that the buffer is bound (:py:class:`Buffer.bind`)
 .. |texture-bind| replace:: :ref:`Binds a texture <texture-bind-warning>`
 .. |vao-bind| replace:: :ref:`Binds a Vertex Array Object <vao-bind-warning>`
 .. |program-bind| replace:: :ref:`Binds a program <program-bind-warning>`

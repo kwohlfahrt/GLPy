@@ -24,7 +24,6 @@ class Program:
 	"""
 
 	def __init__(self, sources, vertex_attributes=None, uniform_blocks=None):
-		self.bound = 0
 		self.handle = GL.glCreateProgram()
 		if self.handle == 0:
 			raise RuntimeError("Failed to create OpenGL program.")
@@ -59,16 +58,12 @@ class Program:
 
 		.. _program-bind-warning:
 		.. warning::
-		   It is not allowed to bind one program while another is bound.  It is allowed to bind the
-		   same program multiple times.
+
+		   It is not allowed to bind multiple programs (or one program multiple times).
 		   
 		   Methods that bind a program will be documented.
 		'''
-		if not self.bound:
-			GL.glUseProgram(self.handle)
-		self.bound += 1
+		GL.glUseProgram(self.handle)
 	
 	def __exit__(self, ty, val, tr):
-		self.bound -= 1
-		if not self.bound:
-			GL.glUseProgram(0)
+		GL.glUseProgram(0)

@@ -1,9 +1,8 @@
 from OpenGL import GL
-from OpenGL.constants import GLboolean, GLint, GLuint, GLfloat, GLdouble
-from numpy import ndarray, dtype, frombuffer
+from numpy import ndarray, dtype
 
 from itertools import chain, repeat
-from functools import partial
+from contextlib import contextmanager
 
 from ctypes import c_byte
 
@@ -39,27 +38,33 @@ class Buffer:
 	"""
 
 	def __init__(self, data=None, usage=GL.GL_DYNAMIC_DRAW, handle=None):
-		self.bound = 0
 		self.mapped = False
 		self.usage = usage
 		self.dtype = None
 		# Buffer not created until bound, this only reserves a name
 		self.handle = GL.glGenBuffers(1) if handle is None else handle
+		if not self.handle:
+			raise RuntimeError("Failed to generate buffer.")
+		self.active_bindings = set()
 
 	# TODO: Deal with deleting buffers
-
 	def map(self, access=(GL.GL_MAP_READ_BIT | GL.GL_MAP_WRITE_BIT)):
 		"""Returns a numpy array mapped to the entire buffer.
 
 		:param access: The OpenGL flags passed to map buffer range.
 
-		.. admonition:: |buffer-bind|
+		.. warning::
 
-		   This action binds the buffer.
+		   |buffer-bind|
 		"""
 
-		with self:
-			mem = GL.glMapBufferRange(self.target, 0, self.dtype.itemsize, access)
+		if self.mapped:
+			raise RuntimeError("Buffer is already mapped.")
+		try:
+			binding = next(iter(self.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Buffers can only be mapped if they are bound to a target.")
+		mem = GL.glMapBufferRange(binding, 0, self.dtype.itemsize, access)
 		self.mapped = True
 
 		numpy_buffer = (c_byte * self.dtype.itemsize).from_address(mem)
@@ -69,16 +74,18 @@ class Buffer:
 		"""Unmaps the buffer. Any mapped arrays *must not* be used after this action. This implicitly
 		flushes any changes made to the buffer.
 
-		.. admonition:: |buffer-bind|
+		.. warning::
 
-		   This action binds the buffer.
+		   |buffer-bind|
 		"""
 
 		if not self.mapped:
 			return
-
-		with self:
-			GL.glUnmapBuffer(self.target)
+		try:
+			binding = next(iter(self.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Buffers can only be unmapped if they are bound to a target.")
+		GL.glUnmapBuffer(binding)
 		self.mapped = False
 
 	def __setitem__(self, idxs, data):
@@ -91,9 +98,9 @@ class Buffer:
 			is passed, the buffer will not be initialized.
 		:type data: :py:class:`numpy.dtype` or :py:class:`numpy.ndarray`
 
-		.. admonition:: |buffer-bind|
+		.. warning::
 
-		   This action binds the buffer.
+		   |buffer-bind|
 		"""
 		if idxs is Ellipsis:
 			if isinstance(data, dtype):
@@ -102,10 +109,12 @@ class Buffer:
 			else:
 				dt = ( data.dtype if product(data.shape) == 1
 				       else dtype((data.dtype, data.shape)) )
-			with self:
-				GL.glBufferData(self.target, dt.itemsize, data, self.usage)
+			try:
+				binding = next(iter(self.active_bindings))
+			except StopIteration:
+				raise RuntimeError("Buffer data can only be set if it is bound.")
+			GL.glBufferData(binding, dt.itemsize, data, self.usage)
 			self.dtype = dt
-
 		else:
 			raise NotImplementedError("TODO: Allow changing replacing buffer dtypes.")
 
@@ -114,28 +123,27 @@ class Buffer:
 			idxs = (idxs,)
 		return SubBuffer(self, *idxs)
 
-	# FIXME: create multiple context managers for different binding targets.
-	def __enter__(self):
-		"""Buffer objects provide a context manager. This keeps track of how
-		many times the buffer has been bound and unbound. Grouping operations
-		on a buffer within a context where it is bound prevents repeated
-		binding and un-binding.
+	@contextmanager
+	def bind(self, target, index=None):
+		"""Binds the buffer to a target, with an optional index for an indexed target.
 
-		.. _buffer-bind-warning:
 		.. warning::
-		   It is not allowed to bind two buffers with the same target
-		   simultaneously. It is allowed to bind the *same* buffer multiple times.
-		   
-		   Methods that bind a buffer will be documented
-		"""
-		if not self.bound:
-			GL.glBindBuffer(self.target, self.handle)
-		self.bound += 1
 
-	def __exit__(self, ex, val, tr):
-		self.bound -= 1
-		if not self.bound:
-			GL.glBindBuffer(self.target, 0)
+		   It is not allowed to bind two buffers (or one buffer twice) to the same target
+		   simultaneously.
+		"""
+
+		if index is None:
+			GL.glBindBuffer(target, self.handle)
+		else:
+			GL.glBindBufferBase(target, index, self.handle)
+		self.active_bindings.add(target)
+		yield
+		if index is None:
+			GL.glBindBuffer(target, 0)
+		else:
+			GL.glBindBufferBase(target, index, 0)
+		self.active_bindings.remove(target)
 
 	@property
 	def nbytes(self):
@@ -158,26 +166,33 @@ class Buffer:
 
 	@property
 	def data(self):
-		""" Returns or sets the contents of the buffer, as a :py:class:`numpy.ndarray`
+		'''Returns or sets the contents of the buffer, as a :py:class:`numpy.ndarray`
 
-		.. admonition:: |buffer-bind|
+		.. warning::
 
-		   Reading and writing from this property both bind the buffer.
-		"""
+		   |buffer-bind|
+		'''
 		# TODO: server-side buffer copies via assigning a (Sub)Buffer (instead of numpy array)
-		with self:
-			a = GL.glGetBufferSubData(self.target, 0, self.nbytes)
+		try:
+			binding = next(iter(self.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Buffer contents can only be retrieved if they are bound.")
+		a = GL.glGetBufferSubData(binding, 0, self.nbytes)
 		a.dtype = self.dtype.base
 		a.shape = self.dtype.shape
 		return a
 
 	@data.setter
 	def data(self, value):
+		try:
+			binding = next(iter(self.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Buffer contents can only be set if they are bound.")
 		value.dtype = self.dtype.base
 		value.shape = self.dtype.shape
-		with self:
-			GL.glBufferSubData(self.target, 0, value.nbytes, value)
+		GL.glBufferSubData(binding, 0, value.nbytes, value)
 
+# FIXME: This might be able to inherit from buffer? Or vice versa?
 class SubBuffer:
 	'''A *contiguous* section of a buffer. All values are calculated on initialization, so if the
 	underlying buffer changes it's dtype the view must not be used.
@@ -266,12 +281,15 @@ class SubBuffer:
 
 		:param access: The OpenGL flags passed to map buffer range.
 
-		.. admonition:: |buffer-bind|
+		.. warning::
 
-		   This action binds the buffer.
+		   |buffer-bind|
 		"""
-		with self.buffer:
-			mem = GL.glMapBufferRange(self.buffer.target, self.offset, self.dtype.itemsize, access)
+		try:
+			binding = next(iter(self.buffer.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Sub-buffer contents can only be set if the buffer is bound.")
+		mem = GL.glMapBufferRange(binding, self.offset, self.dtype.itemsize, access)
 		self.buffer.mapped = True
 
 		numpy_buffer = (c_byte * self.dtype.itemsize).from_address(mem)
@@ -292,19 +310,30 @@ class SubBuffer:
 
 	@property
 	def data(self):
-		"""See :py:meth:`Buffer.data`"""
-		with self.buffer:
-			a = GL.glGetBufferSubData(self.buffer.target, self.offset, self.nbytes)
+		"""See :py:meth:`Buffer.data`
+
+		.. warning::
+
+		   |buffer-bind|
+		"""
+		try:
+			binding = next(iter(self.buffer.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Sub-buffer contents can only be retrieved if the buffer is bound.")
+		a = GL.glGetBufferSubData(binding, self.offset, self.nbytes)
 		a.dtype = self.dtype.base
 		a.shape = self.dtype.shape
 		return a
 
 	@data.setter
 	def data(self, value):
+		try:
+			binding = next(iter(self.buffer.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Sub-buffer contents can only be set if the buffer is bound.")
 		value.dtype = self.dtype.base
 		value.shape = self.dtype.shape
-		with self.buffer:
-			GL.glBufferSubData(self.buffer.target, self.offset, value.nbytes, value)
+		GL.glBufferSubData(binding, self.offset, value.nbytes, value)
 
 	@property
 	def stride(self):
@@ -398,17 +427,19 @@ class BufferMapping(ndarray):
 
 		Otherwise, a memory barrier is issued. This requires ``ARB_shader_image_load_store``.
 
-		.. admonition:: |buffer-bind|
+		.. warning::
 
-		   This action binds the buffer *only if* :py:obj:`GL.GL_MAP_FLUSH_EXPLICIT_BIT` was set
-		   when the buffer was bound.
+		   |buffer-bind|
 		"""
 
 		# FIXME: FLUSH_EXPLICIT_BIT is for flushing sub-ranges (no auto-flush at unmap?), so flush minimal region instead of whole mapped region
+		try:
+			binding = next(iter(self.gl_buffer.active_bindings))
+		except StopIteration:
+			raise RuntimeError("Buffer mappings can only be flushed if the buffer is bound.")
 
 		if self.access & GL.GL_MAP_FLUSH_EXPLICIT_BIT:
 			length = self.dtype.itemsize * product(self.shape)
-			with self.gl_buffer:
-				GL.glFlushMappedBufferRange(self.gl_buffer.target, self.offset, length)
+			GL.glFlushMappedBufferRange(binding, self.offset, length)
 		else:
 			GL.glMemoryBarrier(GL.GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT)

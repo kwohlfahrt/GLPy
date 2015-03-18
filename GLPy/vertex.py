@@ -64,7 +64,6 @@ class VAO:
 	def __init__(self, *attributes, handle=None):
 		self.handle = GL.glGenVertexArrays(1) if handle is None else handle
 		self.attributes = {}
-		self.bound = 0
 		self._element_buffer = None
 
 		vao_attributes = chain.from_iterable(VAOAttribute.fromVertexAttribute(self, a)
@@ -81,13 +80,14 @@ class VAO:
 	def element_buffer(self):
 		'''The element buffer to be used with this VAO for indexed drawing.
 
-		.. admonition:: |buffer-bind|
+		.. warning:: |buffer-bind|
 
-		   Setting to this property binds the buffer being assigned to the VAO
+		   Setting to this property binds the buffer being assigned to the VAO to
+		   :py:obj:`GL.GL_ELEMENT_ARRAY_BUFFER`.
 
 		.. admonition:: |vao-bind|
 
-		   Setting to this property binds the VAO being assigned to
+		   Setting to this property binds the VAO being assigned to.
 		'''
 		return self._element_buffer
 
@@ -110,18 +110,14 @@ class VAO:
 
 		.. _vao-bind-warning:
 		.. warning::
-		   It is not allowed to bind two VAOs simultaneously. It is allowed to bind the *same* VAO
-		   multiple times. Methods that bind a VAO will be documented
+
+		   It is not allowed to bind two VAOs (or the same VAO twice) simultaneously.
 		'''
 
-		if not self.bound:
-			GL.glBindVertexArray(self.handle)
-		self.bound += 1
+		GL.glBindVertexArray(self.handle)
 
 	def __exit__(self, ex, val, tr):
-		self.bound -= 1
-		if not self.bound:
-			GL.glBindVertexArray(0)
+		GL.glBindVertexArray(0)
 
 # So they take the same number of paremeters as GL.glVertexAttribPointer
 def glVertexAttribIPointer(idx, components, type, normalized, stride, offset):
@@ -166,6 +162,11 @@ class VAOAttribute:
 	def data(self):
 		'''The buffer data backing this vertex attribute. Currently set-only.
 
+		.. warning::
+
+		   Setting to this attribute binds the buffer providing the data to
+		   :py:obj:`GL.GL_ARRAY_BUFFER`
+
 		:param value: The data for the attribute.
 		:type value: :py:class:`.BufferItem`
 		'''
@@ -177,7 +178,7 @@ class VAOAttribute:
 			# Never allow, GL_ARB_vertex_attrib_64bit suggests default values for compatability
 			raise ValueError("Specified only {} components for a vertex attribute expecting {}."
 			                 .format(value.components, self.components))
-		with value.buffer, self.vao:
+		with self.vao, value.buffer.bind(GL.GL_ARRAY_BUFFER):
 			setter = self.gl_pointer_functions[self.scalar_type]
 			setter(self.location, value.components, numpy_buffer_types[value.dtype.base],
 			       self.normalized, value.buffer.stride, GL.GLvoidp(value.offset))

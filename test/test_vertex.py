@@ -77,14 +77,28 @@ class VertexTest(ContextTest):
 		v = self.program.vertex_attributes
 		vao = VAO(*self.program.vertex_attributes.values())
 		buf = Buffer()
-		buf.target = GL.GL_ARRAY_BUFFER # FIXME
-		buf[...] = numpy.zeros(10, dtype=dtype(('float32', 4)))
+		with buf.bind(GL.GL_ARRAY_BUFFER):
+			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 4)))
 
 		t = vao[v['position'].location]
 		self.assertEqual(t.location, v['position'].location)
 		vao[v['position'].location].data = buf.items
 
-		buf[...] = numpy.zeros(10, dtype=dtype(('float32', 3))) #TODO: Value error here
-		t = vao[v['position'].location]
+	@unittest.skip("TODO")
+	def test_vao_dtype_fail(self):
+		v = self.program.vertex_attributes
+		vao = VAO(*self.program.vertex_attributes.values())
+		buf = Buffer()
+		with buf.bind(GL.GL_ARRAY_BUFFER):
+			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 3)))
+
 		with self.assertRaises(ValueError):
 			vao[v['position'].location].data = buf.items
+
+		with buf.bind(GL.GL_ARRAY_BUFFER):
+			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 4)))
+		vao[v['position'].location].data = buf.items
+
+		with buf.bind(GL.GL_ARRAY_BUFFER):
+			with self.assertRaises(ValueError):
+				buf[...] = numpy.zeros(10, dtype=dtype(('float32', 3)))
