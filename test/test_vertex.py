@@ -47,7 +47,7 @@ class VertexTest(ContextTest):
 						 , VertexAttribute('baz', 'vec2')
 		                 , VertexAttribute('foo', 'mat2x4')
 		                 , VertexAttribute('bar', Array('mat3', 2)) ]
-		self.program = Program(shaders, vertex_attributes=vertex_attribs)
+		self.program = Program.fromSources(shaders, vertex_attributes=vertex_attribs)
 		self.vao = VAO(*self.program.vertex_attributes.values())
 
 	def tearDown(self):

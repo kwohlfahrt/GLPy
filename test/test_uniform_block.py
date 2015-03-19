@@ -24,7 +24,7 @@ class UniformBlockTest(ContextTest):
 						               Variable('optimized_out', 'float'),
 									   Variable('foo', Array(struct_foo_optimized, 2)),
 									   instance_name='uboptimized')]
-		self.program = Program(shaders, uniform_blocks=uniform_blocks)
+		self.program = Program.fromSources(shaders, uniform_blocks=uniform_blocks)
 	
 	def test_index(self):
 		# No way to determine indices in advance, so just make sure they are unique

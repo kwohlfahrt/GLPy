@@ -90,7 +90,7 @@ The various OpenGL constructs, such as vertex arrays and buffers have their own 
 
    from GLPy import Program, VAO, Buffer
 
-   program = Program(shaders, uniform_blocks=[projection], vertex_attributes=[position])
+   program = Program.fromSources(shaders, uniform_blocks=[projection], vertex_attributes=[position])
    vao = VAO(program.vertex_attributes['position'])
    projection_buffer = Buffer()
    element_buffer = Buffer()

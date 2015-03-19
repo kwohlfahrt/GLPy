@@ -40,7 +40,7 @@ class ProgramTest(ContextTest):
 		shader_files = { 'vertex': 'compile.vert'
 		               , 'fragment': 'compile.frag'}
 		shaders = readShaders(**shader_files)
-		self.program = Program(shaders)
+		self.program = Program.fromSources(shaders)
 	
 	def test_compilation(self):
 		pass
@@ -76,7 +76,7 @@ class TextureTest(unittest.TestCase):
 
 		uniform_attributes = [ Variable('tex', 'sampler2D') ]
 
-		program = Program(shaders, attributes=vao.attributes, uniforms=uniform_attributes)
+		program = Program.fromSources(shaders, attributes=vao.attributes, uniforms=uniform_attributes)
 
 		buf = VertexBuffer(Type('vec3'))
 		data = numpy.array([[0, 0, 0], [0, 1, 0], [0, 0, 1]], dtype='int16')
