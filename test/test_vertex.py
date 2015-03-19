@@ -12,37 +12,27 @@ from GLPy.GLSL import Variable, Array, Scalar, VertexAttribute
 from GLPy import Program, VAO, Buffer
 from GLPy.vertex import VAOAttribute
 
-class VAOAttributeTest(ContextTest):
-	def test_from_vertex_attrib(self):
-		vao = VAO()
+class VAOTest(ContextTest):
+	def test_overlapping(self):
+		with self.assertRaises(ValueError):
+			VAO(VertexAttribute('m4', 'mat4', location=0),
+			    VertexAttribute('v3', 'vec3', location=2))
 
-		va = VertexAttribute('position', 'vec4', location=3)
-		vs = VAOAttribute.fromVertexAttribute(vao, va)
-		self.assertEqual(len(vs), 1)
-		self.assertEqual(vs[0].location, 3)
-		self.assertEqual(vs[0].divisor, 0)
-		self.assertEqual(vs[0].components, 4)
-		self.assertEqual(vs[0].scalar_type, Scalar.float)
+	def test_indexing(self):
+		vao = VAO(VertexAttribute('m4', 'mat4', location=3))
+		self.assertEqual(vao['m4'], VAOAttribute(vao, 3, 'mat4'))
+		self.assertEqual(vao['m4'][1], VAOAttribute(vao, 4, 'vec4'))
 
-		va = VertexAttribute('position', 'uvec2', location=3)
-		vs = VAOAttribute.fromVertexAttribute(vao, va)
-		self.assertEqual(len(vs), 1)
-		self.assertEqual(vs[0].components, 2)
-		self.assertEqual(vs[0].scalar_type, Scalar.uint)
+		vao = VAO(VertexAttribute('2m4', Array('mat4', 2), location=3))
+		self.assertEqual(vao['2m4'], VAOAttribute(vao, 3, Array('mat4', 2)))
+		self.assertEqual(vao['2m4'][1], VAOAttribute(vao, 7, 'mat4'))
 
-		va = VertexAttribute('position', 'int', location=3)
-		vs = VAOAttribute.fromVertexAttribute(vao, va, divisor=1)
-		self.assertEqual(vs[0].divisor, 1)
-		self.assertEqual(vs[0].components, 1)
-		self.assertEqual(vs[0].scalar_type, Scalar.int)
-
-		va = VertexAttribute('position', 'mat3x2', location=3)
-		vs = VAOAttribute.fromVertexAttribute(vao, va, divisor=1)
-		self.assertEqual(len(vs), 3)
-		for i, v in enumerate(vs):
-			self.assertEqual(v.location, i + 3)
-			self.assertEqual(v.components, 2)
-			self.assertEqual(v.scalar_type, Scalar.float)
+	def test_divisor(self):
+		vao = VAO(VertexAttribute('m4', 'mat4', location=3))
+		self.assertEqual(vao['m4'].divisor, 0)
+		vao['m4'].divisor = 1
+		self.assertEqual(vao['m4'].divisor, 1)
+		self.assertEqual(vao['m4'][2].divisor, 1)
 
 class VertexTest(ContextTest):
 	def setUp(self):
@@ -58,6 +48,7 @@ class VertexTest(ContextTest):
 		                 , VertexAttribute('foo', 'mat2x4')
 		                 , VertexAttribute('bar', Array('mat3', 2)) ]
 		self.program = Program(shaders, vertex_attributes=vertex_attribs)
+		self.vao = VAO(*self.program.vertex_attributes.values())
 
 	def tearDown(self):
 		super().tearDown()
@@ -66,39 +57,34 @@ class VertexTest(ContextTest):
 		v = self.program.vertex_attributes
 		for attribute in v.values():
 			self.assertGreaterEqual(attribute.location, 0)
-
-	def test_indices(self):
-		v = self.program.vertex_attributes
-		self.assertEqual(v['position'].indices, 1)
-		self.assertEqual(v['foo'].indices, 2)
-		self.assertEqual(v['bar'].indices, 6)
 	
 	def test_vao_attributes(self):
-		v = self.program.vertex_attributes
-		vao = VAO(*self.program.vertex_attributes.values())
 		buf = Buffer()
 		with buf.bind(GL.GL_ARRAY_BUFFER):
 			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 4)))
 
-		t = vao[v['position'].location]
-		self.assertEqual(t.location, v['position'].location)
-		vao[v['position'].location].data = buf.items
+		self.assertEqual(self.vao['position'].location,
+		                 self.program.vertex_attributes['position'].location)
+		self.vao['position'].data = buf.items
 
-	@unittest.skip("TODO")
 	def test_vao_dtype_fail(self):
-		v = self.program.vertex_attributes
-		vao = VAO(*self.program.vertex_attributes.values())
 		buf = Buffer()
 		with buf.bind(GL.GL_ARRAY_BUFFER):
 			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 3)))
 
 		with self.assertRaises(ValueError):
-			vao[v['position'].location].data = buf.items
+			self.vao['position'].data = buf.items
 
 		with buf.bind(GL.GL_ARRAY_BUFFER):
 			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 4)))
-		vao[v['position'].location].data = buf.items
+		self.vao['position'].data = buf.items
 
+	@unittest.skip("TODO")
+	def test_buffer_reassign_fail(self):
+		buf = Buffer()
+		with buf.bind(GL.GL_ARRAY_BUFFER):
+			buf[...] = numpy.zeros(10, dtype=dtype(('float32', 4)))
+		self.vao['position'].data = buf.items
 		with buf.bind(GL.GL_ARRAY_BUFFER):
 			with self.assertRaises(ValueError):
 				buf[...] = numpy.zeros(10, dtype=dtype(('float32', 3)))

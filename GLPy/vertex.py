@@ -1,14 +1,9 @@
 from OpenGL import GL
 
-from itertools import repeat, chain
-from collections import Counter, namedtuple
+from .GLSL import Scalar, BasicType, VertexAttribute
+from .buffers import numpy_buffer_types, buffer_numpy_types
 
-from .GLSL import Variable, Scalar, Vector, Matrix, BasicType, Array, VertexAttribute
-from .buffers import Buffer, numpy_buffer_types, buffer_numpy_types, integer_buffer_types
-
-from util.misc import product, subIter
-
-import numpy
+from util.misc import product
 
 from ctypes import c_void_p
 
@@ -38,20 +33,16 @@ class ProgramVertexAttribute(VertexAttribute):
 			return self.shader_location
 		return self.dynamic_location
 
-	@property
-	def locations(self):
-		'''All of the locations occupied by this attribute.
-
-		:rtype: [:py:obj:`int`]
-		'''
-		return range(self.location, self.location + self.indices)
-
 # These types are valid OpenGL data types for glDrawElements
 gl_element_buffer_types = { GL.GL_UNSIGNED_BYTE, GL.GL_UNSIGNED_SHORT, GL.GL_UNSIGNED_INT }
 element_buffer_dtypes = { buffer_numpy_types[datatype] for datatype in gl_element_buffer_types }
 
 class VAO:
 	'''A class to represent VAO objects.
+
+    .. warning::
+
+       The VAO will be bound during initialization.
 
 	:param \\*attributes: The attributes that the VAO will contain.
 	:type \\*attributes: :py:class:`.VertexAttribute`
@@ -63,18 +54,18 @@ class VAO:
 
 	def __init__(self, *attributes, handle=None):
 		self.handle = GL.glGenVertexArrays(1) if handle is None else handle
-		self.attributes = {}
+		self.attributes = {a.name: VAOAttribute.fromVertexAttribute(self, a) for a in attributes}
 		self._element_buffer = None
 
-		vao_attributes = chain.from_iterable(VAOAttribute.fromVertexAttribute(self, a)
-		                                     for a in attributes)
-
-		for attribute in vao_attributes:
-			self.attributes[attribute.location] = attribute
-
+		occupied_attributes = set()
 		with self:
-			for location in self.attributes:
-				GL.glEnableVertexAttribArray(location)
+			for attribute in self.attributes.values():
+				attribute_locations = set(attribute.locations)
+				if occupied_attributes & attribute_locations:
+					raise ValueError("Cannot specify overlapping attributes on one VAO.")
+				occupied_attributes |= attribute_locations
+				for location in attribute.locations:
+					GL.glEnableVertexAttribArray(location)
 
 	@property
 	def element_buffer(self):
@@ -85,7 +76,7 @@ class VAO:
 		   Setting to this property binds the buffer being assigned to the VAO to
 		   :py:obj:`GL.GL_ELEMENT_ARRAY_BUFFER`.
 
-		.. admonition:: |vao-bind|
+		.. warning:: |vao-bind|
 
 		   Setting to this property binds the VAO being assigned to.
 		'''
@@ -131,7 +122,7 @@ class VAOAttribute:
 	:param vao: The VAO this attribute belongs to.
 	:type vao: :py:class:`.VAO`
 	:param int location: The location (index) of this attribute in the VAO
-	:param scalar_type: The scalar type of one element of this attribute
+	:param scalar_type: The scalar type of this attribute
 	:type scalar_type: :py:class:`.Scalar`
 	:param bool normalized: If the attribute is of a floating-point type,
 	  whether data should be normalized
@@ -143,29 +134,83 @@ class VAOAttribute:
 	                       , Scalar.bool: GL.glVertexAttribPointer
 	                       , Scalar.int: glVertexAttribIPointer }
 
-	def __init__(self, vao, location, components, scalar_type, divisor=0, normalized=True):
-		self.vao = vao
+	def __init__(self, vao, location, datatype, normalized=False, divisor=0):
+		self.normalized = normalized
+		try:
+			self.datatype = BasicType(datatype)
+		except ValueError:
+			self.datatype = datatype
+		if not isinstance(getattr(self.datatype, 'base', self.datatype), BasicType):
+			raise ValueError("Vertex attributes must be basic types or arrays thereof.")
+		self.datatype = datatype
 		self.location = location
-		self.scalar_type = scalar_type
-		self.components = components
+		self.vao = vao
 		self.divisor = divisor
-		self.normalized = bool(normalized)
 		self._data = None
 
+	def __repr__(self):
+		return ( "<VAOAttribute vao={}, location={}, length={}, normalized={}, divisor={}>"
+		         .format(self.vao, self.location, self.locations, self.normalized, self.divisor) )
+
 	@classmethod
-	def fromVertexAttribute(cls, vao, attribute, divisor=0):
-		scalar_type = getattr(attribute.datatype, 'base', attribute.datatype).scalar_type
-		return [cls(vao, l, attribute.components, scalar_type, divisor, attribute.normalized)
-		        for l in attribute.locations]
+	def fromVertexAttribute(cls, vao, attrib, divisor=0):
+		location = getattr(attrib, 'location', attrib.shader_location)
+		if location is None:
+			raise ValueError("Cannot construct from attribute without location.")
+		return cls(vao, location, attrib.datatype, attrib.normalized, divisor)
+
+	def __eq__(self, other):
+		# Could check scalar type, locations and components instead of datatype
+		return ( self.vao == other.vao and self.location == other.location
+		       and self.datatype == other.datatype and self.normalized == other.normalized
+		       and self.divisor == other.divisor )
+
+	def __getitem__(self, idx):
+		datatype = self.datatype[idx]
+
+		array_elements = product(getattr(datatype, 'full_shape', (1,)))
+		base_type = getattr(datatype, 'base', datatype)
+		element_indices = getattr(base_type, 'columns', 1)
+
+		location = self.location + idx * element_indices * array_elements
+		return VAOAttribute(self.vao, location, datatype, self.normalized, self.divisor)
+
+	@property
+	def indices(self):
+		'''The total number of vertex attribute indices taken up by the attribute.'''
+
+		datatype = getattr(self.datatype, 'base', self.datatype)
+		element_indices = getattr(datatype, 'columns', 1)
+		array_shape = getattr(self.datatype, 'full_shape', (1,))
+		return element_indices * product(array_shape)
+
+	@property
+	def locations(self):
+		'''All of the locations occupied by this attribute.
+
+		:rtype: [:py:obj:`int`]
+		'''
+		return range(self.location, self.location + self.indices)
+
+	@property
+	def components(self):
+		'''The number of components of a single attribute index of this type.'''
+
+		datatype = getattr(self.datatype, 'base', self.datatype)
+		return getattr(datatype, 'shape', (1,))[-1]
 
 	@property
 	def data(self):
-		'''The buffer data backing this vertex attribute. Currently set-only.
+		'''The buffer data backing this vertex attribute.
 
 		.. warning::
 
 		   Setting to this attribute binds the buffer providing the data to
 		   :py:obj:`GL.GL_ARRAY_BUFFER`
+
+		.. warning::
+
+		   Setting to this attribute binds the VAO containing it.
 
 		:param value: The data for the attribute.
 		:type value: :py:class:`.BufferItem`
@@ -175,13 +220,16 @@ class VAOAttribute:
 	@data.setter
 	def data(self, value):
 		if value.components < self.components:
-			# Never allow, GL_ARB_vertex_attrib_64bit suggests default values for compatability
+			# Never allow, GL_ARB_vertex_attrib_64bit suggests default values are for compatability
 			raise ValueError("Specified only {} components for a vertex attribute expecting {}."
 			                 .format(value.components, self.components))
 		with self.vao, value.buffer.bind(GL.GL_ARRAY_BUFFER):
-			setter = self.gl_pointer_functions[self.scalar_type]
-			setter(self.location, value.components, numpy_buffer_types[value.dtype.base],
-			       self.normalized, value.buffer.stride, GL.GLvoidp(value.offset))
+			setter = self.gl_pointer_functions[self.datatype.scalar_type]
+			for location in self.locations:
+				setter(location, self.components, numpy_buffer_types[value.dtype.base],
+					   self.normalized, value.buffer.stride, GL.GLvoidp(value.offset))
+		self._data = value
+
 	@property
 	def divisor(self):
 		return self._divisor
@@ -196,5 +244,5 @@ class VAOAttribute:
 		  ``0`` to use one value per vertex.
 		'''
 		with self.vao:
-			GL.glVertexAttribDivisor(self.location, int(value))
+			GL.glVertexAttribDivisor(self.location, value)
 		self._divisor = value

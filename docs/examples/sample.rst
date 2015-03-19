@@ -120,7 +120,7 @@ Then the uniforms buffer contents are set, and vertex data is added to the the V
       projection_buffer['camera_clip'].data = xform.perspective(radians(90)).astype('float32')
 
    vao.element_buffer = element_buffer
-   vao[program.vertex_attributes['position'].location].data = vertex_buffer.items
+   vao['position'].data = vertex_buffer.items
 
 Finally, the following code will display the geometry
 

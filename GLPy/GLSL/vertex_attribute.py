@@ -16,7 +16,6 @@ class VertexAttribute(Variable):
 	# How does glVertexAttribDivisor work with glVertexBindingDivisor?
 	def __init__(self, name, datatype, location=None, normalized=False):
 		super().__init__(name=name, datatype=datatype)
-		# Could also check for base_type attribute
 		base_type = getattr(self.datatype, 'base', self.datatype)
 		if not isinstance(base_type, BasicType):
 			raise TypeError("Invalid type for a vertex attribute.")
@@ -24,7 +23,15 @@ class VertexAttribute(Variable):
 		'''The location of this attribute if specified in the shader'''
 		self.normalized = normalized
 		'''Whether a floating-point data type should be normalized from integer data'''
-	
+
+	def __eq__(self, other):
+		return ( super().__eq__(other) and self.shader_location == other.shader_location
+		       and self.normalized == other.normalized )
+
+	def __repr__(self):
+		return ("<VertexAttribute name={}, datatype={}, location={}, normalized={}>"
+		        .format(self.name, self.datatype, self.shader_location, self.normalized))
+
 	def __str__(self):
 		base = super().__str__()
 		if self.shader_location is not None:
@@ -32,21 +39,15 @@ class VertexAttribute(Variable):
 			return ' '.join((layout, 'in', base))
 		return ' '.join(('in', base))
 
-	type_indices = { s: 1 for s in Scalar }
-	type_indices.update({ v: 1 for v in Vector })
-	type_indices.update({ m: m.shape[0] for m in Matrix })
+	def __getitem__(self, idx):
+		var = super().__getitem__(idx)
 
-	@property
-	def indices(self):
-		'''The total number of vertex attribute indices taken up by the attribute.'''
-		datatype = getattr(self.datatype, 'base', self.datatype)
-		element_indices = getattr(datatype, 'columns', 1)
-		array_shape = getattr(self.datatype, 'full_shape', (1,))
-		return element_indices * product(array_shape)
-	
-	@property
-	def components(self):
-		'''The number of components of a single attribute index of this type.'''
+		array_elements = product(getattr(var.datatype, 'full_shape', (1,)))
+		base_type = getattr(var.datatype, 'base', var.datatype)
+		element_indices = getattr(base_type, 'columns', 1)
 
-		datatype = getattr(self.datatype, 'base', self.datatype)
-		return getattr(datatype, 'shape', (1,))[-1]
+		if self.shader_location is None:
+			location = None
+		else:
+			location = self.shader_location + idx * element_indices * array_elements
+		return VertexAttribute(var.name, var.datatype, location, self.normalized)
