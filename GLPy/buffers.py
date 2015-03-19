@@ -25,6 +25,13 @@ integer_buffer_types = { GL.GL_BYTE, GL.GL_UNSIGNED_BYTE
                        , GL.GL_INT, GL.GL_UNSIGNED_INT }
 floating_point_buffer_types = { GL.GL_HALF_FLOAT, GL.GL_FLOAT, GL.GL_DOUBLE }
 
+def baseDtype(dtype):
+	dt, shape = dtype.subdtype
+	while dt.subdtype:
+		dt, new_shape = dt.subdtype
+		shape += new_shape
+	return dt, shape
+
 class Buffer:
 	"""An OpenGL buffer.
 
@@ -178,8 +185,9 @@ class Buffer:
 		except StopIteration:
 			raise RuntimeError("Buffer contents can only be retrieved if they are bound.")
 		a = GL.glGetBufferSubData(binding, 0, self.nbytes)
-		a.dtype = self.dtype.base
-		a.shape = self.dtype.shape
+		base_dtype, shape = baseDtype(self.dtype)
+		a.dtype = base_dtype
+		a.shape = shape
 		return a
 
 	@data.setter

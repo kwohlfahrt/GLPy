@@ -3,7 +3,9 @@ from OpenGL import GL
 from .vertex import ProgramVertexAttribute
 from .uniform_block import ProgramUniformBlock
 
-from copy import deepcopy
+from contextlib import contextmanager
+
+import ctypes as c
 
 shader_types = { 'vertex': GL.GL_VERTEX_SHADER
 			   , 'fragment': GL.GL_FRAGMENT_SHADER
@@ -22,8 +24,8 @@ class Shader:
 		GL.glShaderSource(self.handle, source)
 		GL.glCompileShader(self.handle)
 		if GL.glGetShaderiv(self.handle, GL.GL_COMPILE_STATUS) == GL.GL_FALSE:
-			log = GL.glGetShaderInfoLog(shader).decode()
-			raise RuntimeError("Failed to compile {} shader: \n\n{}".format(shader_type, log))
+			log = GL.glGetShaderInfoLog(self.handle).decode()
+			raise RuntimeError("Failed to compile {}: \n\n{}".format(self.shader_type, log))
 
 	def delete(self):
 		'''Delete the shader to free up GL resources.
@@ -46,7 +48,8 @@ class Program:
 	:type uniform_blocks: [:py:class:`.UniformBlock`]
 	"""
 
-	def __init__(self, shaders, vertex_attributes=None, uniform_blocks=None):
+	def __init__(self, shaders, vertex_attributes=None, uniform_blocks=None,
+	             xfb_varyings=None, xfb_mode=GL.GL_INTERLEAVED_ATTRIBS):
 		self.handle = GL.glCreateProgram()
 		if self.handle == 0:
 			raise RuntimeError("Failed to create OpenGL program.")
@@ -54,9 +57,17 @@ class Program:
 		for shader in shaders:
 			GL.glAttachShader(self.handle, shader.handle)
 
+		self.xfb_varyings = xfb_varyings
+		if xfb_varyings is not None:
+			varyings = (c.c_char_p * len(xfb_varyings))(*(v.name.encode() for v in self.xfb_varyings))
+			varyings = c.cast(varyings, c.POINTER(c.POINTER(c.c_char)))
+			GL.glTransformFeedbackVaryings(self.handle, len(xfb_varyings), varyings, xfb_mode)
+		self._xfb_mode = xfb_mode
+
 		GL.glLinkProgram(self.handle)
 		if GL.glGetProgramiv(self.handle, GL.GL_LINK_STATUS) == GL.GL_FALSE:
 			log = GL.glGetProgramInfoLog(self.handle).decode()
+			GL.glDeleteProgram(self.handle)
 			raise RuntimeError("Failed to link program: \n\n{}".format(log))
 
 		self.uniform_blocks = { ub.name: ProgramUniformBlock.fromUniformBlock(self, ub)
@@ -64,13 +75,24 @@ class Program:
 		self.vertex_attributes = { v.name: ProgramVertexAttribute.fromVertexAttribute(self, v)
 		                           for v in vertex_attributes or [] }
 
+	@property
+	def xfb_mode(self):
+		return self._xfb_mode
+
+	@xfb_mode.setter
+	def xfb_mode(self, xfb_mode):
+		varyings = (c.c_char_p * len(xfb_varyings))(*(v.name for v in self.xfb_varyings))
+		varyings = c.cast(varyings, c.POINTER(c.POINTER(c.c_char)))
+		GL.glTransformFeedbackVaryings(self.handle, len(xfb_varyings), varyings, xfb_mode)
+		self._xfb_mode = xfb_mode
+
 	@classmethod
-	def fromSources(cls, sources, vertex_attributes=None, uniform_blocks=None):
+	def fromSources(cls, sources, **kwargs):
 		shaders = []
 		try:
 			for shader_type, shader in sources.items():
 				shaders.append(Shader(shader, shader_type))
-			program = cls(shaders, vertex_attributes, uniform_blocks)
+			program = cls(shaders, **kwargs)
 		finally:
 			for shader in shaders:
 				shader.delete()
@@ -90,3 +112,9 @@ class Program:
 	
 	def __exit__(self, ty, val, tr):
 		GL.glUseProgram(0)
+
+	@contextmanager
+	def feedback(self, mode=GL.GL_POINTS):
+		GL.glBeginTransformFeedback(mode)
+		yield
+		GL.glEndTransformFeedback()

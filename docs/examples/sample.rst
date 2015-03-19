@@ -175,5 +175,6 @@ mouse will rotate the cube
    GLUT.glutMouseFunc(mousebutton)
    GLUT.glutMotionFunc(mousemove)
 
+::
    with projection_buffer.bind(GL.GL_UNIFORM_BUFFER, program.uniform_blocks['Projection'].binding):
       GLUT.glutMainLoop()

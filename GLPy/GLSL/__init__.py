@@ -7,3 +7,4 @@ from .variable import Variable
 from .interface_block import BlockLayout, MatrixLayout
 from .uniform_block import UniformBlock, UniformBlockMember
 from .vertex_attribute import VertexAttribute
+from .transform_feedback import FeedbackVarying
