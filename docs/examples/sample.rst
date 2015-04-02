@@ -147,7 +147,9 @@ mouse will rotate the cube
 
    from util.arcball import ArcBall
 
-   arcball = ArcBall(window_size, (window_size[0], -window_size[1]))
+   centre = tuple(w/2 for w in window_size)
+   axes = (centre[0], -centre[1])
+   arcball = ArcBall(centre, axes)
 
    def updateRotation(rotation):
       projection_buffer['model_camera'].data = xform.lookAt((0, 0, 3)).dot(rotation).astype('float32')
