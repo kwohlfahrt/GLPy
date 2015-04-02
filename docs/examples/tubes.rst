@@ -10,7 +10,7 @@ normal is required to ensure consistent alignment of tubes along the length of a
 
 .. testcode:: sample
 
-	vertex_shader = """
+	tube_vertex_shader = """
 	#version 330
 
 	in vec3 position;
@@ -27,20 +27,19 @@ normal is required to ensure consistent alignment of tubes along the length of a
 	}
 	"""
 
-	geometry_shader = """
+	tube_geometry_shader = """
 	#version 330
 	#extension GL_ARB_gpu_shader5 : require
 
+	#define MAX_VERTS 128
+	#define M_PI 3.1415926535897932384626433832795
+
 	layout(lines_adjacency) in;
-	layout(triangle_strip, max_vertices=128) out;
+	layout(points, max_vertices=MAX_VERTS) out;
 
 	layout(std140) uniform Tube {
 		int npts;
 		float radius;
-	};
-	layout(std140, row_major) uniform Projection {
-		mat4 model_camera;
-		mat4 camera_clip;
 	};
 
 	in VertexData {
@@ -53,9 +52,6 @@ normal is required to ensure consistent alignment of tubes along the length of a
 		vec3 normal;
 	} Out;
 
-	out vec3 normal;
-
-	#define M_PI 3.1415926535897932384626433832795
 	// Rodrigues' rotation formula
 	vec3 rotRodrigues(vec3 vector, vec3 axis, float angle){
 		return ( vector * cos(angle) + cross(axis, vector) * sin(angle)
@@ -78,7 +74,7 @@ normal is required to ensure consistent alignment of tubes along the length of a
 			                             cross(segments[i + 1], segments[i]));
 		}
 
-		for (int i = 0; i <= npts; ++i){
+		for (int i = 0; i <= min(npts, MAX_VERTS/2); ++i){
 			vec3 norm = rotRodrigues(In[1].normal, segments[1], 2 * M_PI * i / npts);
 			vec3 offset = norm * radius;
 			for (int end = 0; end < 2; ++end){
@@ -90,45 +86,67 @@ normal is required to ensure consistent alignment of tubes along the length of a
 				Out.pos = In[end + 1].pos + offset - clamp(overlap, 0, segment_length) * tube_axis;
 
 				Out.normal = norm;
-				gl_Position = camera_clip * model_camera * vec4(Out.pos, 1.0);
 				EmitVertex();
 			}
 		}
-		EndPrimitive();
 	}
 	"""
 
-	fragment_shader = """
+	tube_shaders = {'vertex': tube_vertex_shader, 'geometry': tube_geometry_shader}
+
+	draw_vertex_shader = """
 	#version 330
 
-	out vec4 frag_color;
+	in vec3 position;
+	in vec3 normal;
 
+	uniform Projection {
+		mat4 model_camera;
+		mat4 camera_clip;
+	};
+
+	out VertexData {
+		vec3 pos;
+		vec3 normal;
+	} Out;
+
+	void main() {
+		gl_Position = camera_clip * model_camera * vec4(position, 1.0);
+		Out.pos = gl_Position.xyz;
+		Out.normal = normal;
+	}
+	"""
+
+	draw_fragment_shader = """
+	#version 330
+	
 	in VertexData {
 		vec3 pos;
 		vec3 normal;
 	} In;
 
+	out vec4 frag_color;
+
 	void main() {
-		float intensity = max(dot(In.normal, vec3(0.0, 0.0, 1.0)), 0) + 0.05;
-		frag_color = vec4(intensity * vec3(1.0, 1.0, 1.0), 1.0);
+		float intensity = max(0, dot(In.normal, vec3(0, 0, 1))) + 0.1;
+		frag_color = vec4(intensity * vec3(1, 1, 1), 1);
 	}
 	"""
 
-	shaders = {'vertex': vertex_shader, 'geometry': geometry_shader, 'fragment': fragment_shader}
+	draw_shaders = {'vertex': draw_vertex_shader, 'fragment': draw_fragment_shader}
 
-Then, the variables in the shaders are described (a shader parser would be useful!).
+	from GLPy.GLSL import Variable, UniformBlock, VertexAttribute, FeedbackVarying
 
-.. testcode:: sample
+	vertex_attribs = [VertexAttribute('position', 'vec3'), VertexAttribute('normal', 'vec3')]
+	tube_feedback = [FeedbackVarying('VertexData.pos', 'vec3'),
+	                 FeedbackVarying('VertexData.normal', 'vec3')]
 
-	from GLPy.GLSL import Variable, UniformBlock, VertexAttribute
-
-	projection = UniformBlock('Projection',
-	                          Variable('model_camera', 'mat4'), Variable('camera_clip', 'mat4'),
-	                          layout='std140', matrix_layout='row_major')
 	tube_params = UniformBlock('Tube',
 	                           Variable('npts', 'int'), Variable('radius', 'float'),
 	                           layout='std140')
-	vertex_attribs = [VertexAttribute('position', 'vec3'), VertexAttribute('normal', 'vec3')]
+	projection = UniformBlock('Projection',
+	                          Variable('model_camera', 'mat4'), Variable('camera_clip', 'mat4'),
+	                          layout='std140', matrix_layout='row_major')
 
 Some data is set for our geometry. This describes random points as vertices, and then calculates
 normals for each point.
@@ -136,11 +154,14 @@ normals for each point.
 .. testcode:: sample
 
 	from math import cos, acos, sin
-	from numpy import array, empty, cross, dot
+	from numpy import array, empty, cross, dot, dtype
 	from numpy.linalg import norm
 	from numpy import random
 
 	npoints = 10
+	tube_divisions = 10
+	point_dtype = dtype([('position', 'float32', 3), ('normal', 'float32', 3)])
+
 	positions = random.uniform(-1, 1, size=(npoints, 3)).astype('float32')
 	normals = empty(positions.shape, dtype=positions.dtype)
 
@@ -153,7 +174,6 @@ normals for each point.
 		k /= norm(k)
 		normals[i] = ( normals[i-1] * cos(theta) + cross(k, normals[i-1]) * sin(theta)
 		             + k * dot(k, normals[i-1]) * (1 - cos(theta)))
-	normals = array(normals, dtype=('float32')).astype('float32')
 
 All further steps require an OpenGL context, so one must be created. In this example, we will use
 ``GLUT`` to create one.
@@ -176,31 +196,44 @@ The various OpenGL constructs, such as vertex arrays and buffers have their own 
 .. testcode:: sample
 
 	from GLPy import Program, VAO, Buffer
+	draw_program = Program.fromSources(draw_shaders, uniform_blocks=[projection],
+	                                   vertex_attributes=vertex_attribs)
+	draw_program.uniform_blocks['Projection'].binding = 1
 
-	program = Program.fromSources(shaders, uniform_blocks=[projection, tube_params],
-	                              vertex_attributes=vertex_attribs)
-	for i, block in enumerate(program.uniform_blocks.values()):
-		block.binding = i
+	tube_program = Program.fromSources(tube_shaders, uniform_blocks=[tube_params],
+	                                   vertex_attributes=vertex_attribs,
+	                                   xfb_varyings=tube_feedback)
+	tube_program.uniform_blocks['Tube'].binding = 2
 
-	vao = VAO(*program.vertex_attributes.values()) #*
+	tube_vao = VAO(*tube_program.vertex_attributes.values()) #*
+
+	tube_param_buffer = Buffer()
+	input_buffer = Buffer()
+
+	draw_vao = VAO(*draw_program.vertex_attributes.values()) #*
 	projection_buffer = Buffer()
-	tube_buffer = Buffer()
-	vertex_buffer = Buffer()
-	normal_buffer = Buffer()
+	draw_buffer = Buffer()
+	draw_element_buffer = Buffer()
 
 An empty buffer is allocated for the projection uniforms, and data is uploaded directly for the
 vertex buffer.
 
 .. testcode:: sample
 
+	with tube_param_buffer.bind(GL.GL_UNIFORM_BUFFER):
+		tube_param_buffer[...] = tube_params.dtype
 	with projection_buffer.bind(GL.GL_UNIFORM_BUFFER):
 		projection_buffer[...] = projection.dtype
-	with tube_buffer.bind(GL.GL_UNIFORM_BUFFER):
-		tube_buffer[...] = tube_params.dtype
-	with vertex_buffer.bind(GL.GL_ARRAY_BUFFER):
-		vertex_buffer[...] = positions
-	with normal_buffer.bind(GL.GL_ARRAY_BUFFER):
-		normal_buffer[...] = normals
+
+	with input_buffer.bind(GL.GL_ARRAY_BUFFER):
+		input_buffer[...] = dtype(point_dtype, npoints)
+		m = input_buffer.map()
+		print(m.dtype)
+		input_buffer.unmap(); del m;
+	with draw_buffer.bind(GL.GL_ARRAY_BUFFER):
+		draw_buffer[...] = dtype(point_dtype, npoints * tube_divisions)
+	with draw_element_buffer.bind(GL.GL_ELEMENT_ARRAY_BUFFER):
+		draw_element_buffer = indices
 
 Then the uniforms buffer contents are set, and vertex data is added to the the VAO.
 
@@ -268,7 +301,8 @@ Finally, the following code will display the geometry
 	GLUT.glutKeyboardFunc(keypress)
 	GLUT.glutMouseFunc(mousebutton)
 	GLUT.glutMotionFunc(mousemove)
+	print(tube_buffer.handle, program.uniform_blocks['Tube'].binding)
+	print(projection_buffer.handle, program.uniform_blocks['Projection'].binding)
 
-::
 	with tube_buffer.bind(GL.GL_UNIFORM_BUFFER, program.uniform_blocks['Tube'].binding), projection_buffer.bind(GL.GL_UNIFORM_BUFFER, program.uniform_blocks['Projection'].binding):
 		GLUT.glutMainLoop()
