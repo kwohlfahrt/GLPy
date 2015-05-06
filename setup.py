@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 '''
 	GLPy
@@ -15,7 +15,7 @@ setup(
 	author='Kai Wohlfahrt',
 	description='Pythonic OpenGL classes',
 	long_description=__doc__,
-	py_modules=['GLPy'],
+	packages=['GLPy'],
 	platforms='any',
 	install_requires=[],
 	test_suite='test'
