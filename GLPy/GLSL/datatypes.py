@@ -5,303 +5,172 @@ from numpy import dtype
 
 from enum import Enum
 
-class BasicType:
-	'''A base class for all GLSL basic types:
+class _DatatypeMeta(type):
+    def __str__(self):
+        return self.__name__.lower()
+    def __mul__(self, num):
+        if num < 1:
+            raise ValueError("Cannot have arrays with length less than 1")
+        if num % 1:
+            raise ValueError("Cannot have arrays of non-integer length")
+        return _ArrayMeta(self, num)
 
-	- :py:class:`Scalar`
-	- :py:class:`Vector`
-	- :py:class:`Matrix`
-	- :py:class:`Sampler`
+class _Datatype:
+    def __init__(self, name):
+        self.name = name
+    def __str__(self):
+        return ' '.join((str(type(self)), self.name))
+    def __repr__(self):
+        return '{}(name="{}")'.format(type(self).__name__, self.name)
 
-	It supports construction from a string representation of the GLSL type for convenience:
+    @property
+    def machine_type(self):
+        return dtype((self.scalar_type.machine_type, self.length))
 
-	.. testsetup::
+class _ScalarMeta(_DatatypeMeta):
+    def __new__(cls, name, machine_type, prefix):
+        return super().__new__(cls, name, (_Datatype,), {})
+    def __init__(self, name, machine_type, prefix):
+        self.prefix = prefix
+        self.machine_type = machine_type
 
-	   from GLPy.GLSL import BasicType, Vector
+    def __hash__(self):
+        return hash(self.machine_type)
+    def __eq__(self, other):
+        return self.machine_type == other.machine_type
 
-	>>> BasicType('vec3') is Vector.vec3
-	True
-	'''
+class _VectorMeta(_DatatypeMeta):
+    def __new__(cls, scalar_type, length):
+        name = '{}vec{}'.format(scalar_type.prefix, length).capitalize()
+        return super().__new__(cls, name, (_Datatype,), {})
+    def __init__(self, scalar_type, length):
+        self.scalar_type = scalar_type
+        self.length = length
 
-	def __new__(self, datatype):
-		for basic_type in [Scalar, Vector, Matrix, Sampler]:
-			try:
-				return basic_type[datatype]
-			except KeyError:
-				pass
-		else:
-			raise ValueError("No such GLSL type.")
+    def __hash__(self):
+        return hash((self.scalar_type, self.length))
+    def __eq__(self, other):
+        return (self.scalar_type == other.scalar_type
+                and self.length == other.length)
 
-scalar_types = ['bool', 'int', 'uint', 'float', 'double']
+    @property
+    def machine_type(self):
+        return dtype((self.scalar_type.machine_type, self.length))
 
-class Scalar(str, BasicType, Enum):
-	'''The basic GLSL scalars.
+class _IndexableType(_Datatype):
+    def __len__(self):
+        return len(type(self))
+    def __getitem__(self, idx):
+        name = "{}[{}]".format(self.name, idx)
+        return type(self)[idx](name)
 
-	Scalars define the following attributes:
+class _Matrix(_IndexableType):
+    @property
+    def shape(self):
+        return type(self).shape
 
-	*prefix*
-	  The prefix used for related types, e.g. ``'b'`` for ``Scalar.bool`` as a
-	  3-vector of booleans is a **b**\ vec3
-	*scalar_type*
-	  The scalar type of a scalar is itself
-	*machine_type*
-	  The machine representation of this GLSL type as a :py:class:`numpy.dtype`
-	*opaque*
-	  Whether the datatype is an opaque type (:py:obj:`False`)
-	'''
+class _MatrixMeta(_DatatypeMeta):
+    def __new__(cls, scalar_type, columns, rows):
+        name = '{}mat{}x{}'.format(scalar_type.prefix, columns, rows).capitalize()
+        return super().__new__(cls, name, (_Matrix,), {})
+    def __init__(self, scalar_type, columns, rows):
+        self.scalar_type = scalar_type
+        self.columns = columns
+        self.rows = rows
 
-	__prefixes__ = { 'bool': 'b'
-	               , 'int': 'i'
-	               , 'uint': 'u'
-	               , 'float': ''
-	               , 'double': 'd' }
-	__machine_types__ = {'bool': dtype('uint32')
-						,'int': dtype('int32')
-						,'uint': dtype('uint32')
-						,'float': dtype('float32')
-						,'double': dtype('float64')}
+    def __len__(self):
+        return self.columns
+    def __getitem__(self, idx):
+        if not (0 <= idx < len(self)):
+            raise IndexError("Index {} out of range for a matrix with {} columns"
+                             .format(idx, self.columns))
+        return _VectorMeta(self.scalar_type, self.rows)
+    def __hash__(self):
+        return hash((self.scalar_type, self.columns, self.rows))
+    def __eq__(self, other):
+        return (self.scalar_type == other.scalar_type
+                and self.columns == other.columns
+                and self.rows == other.rows)
 
-	def __init__(self, value):
-		self.prefix = self.__prefixes__[self.name]
-		self.machine_type = self.__machine_types__[self.name]
-		self.scalar_type = self
-		self.opaque = False
-scalar_doc = Scalar.__doc__
-Scalar = Enum('Scalar', ((s, s) for s in scalar_types), type=Scalar)
-Scalar.__doc__ = scalar_doc
-
-floating_point_scalars = { Scalar.float, Scalar.double }
-
-sampler_dims = range(1, 4)
-sampler_data_types = {Scalar.float, Scalar.int, Scalar.uint}
-sampler_types = [ "{}sampler{}D".format(scalar_type.prefix, ndim)
-                  for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) ]
-class Sampler(str, BasicType, Enum):
-	'''The GLSL sampler types.
-
-	Scalars difine the following attributes:
-
-	*opaque*
-	  Whether the datatype is an opaque type (:py:obj:`True`)
-	'''
-	__ndims__ = { "{}sampler{}D".format(scalar_type.prefix, ndim): ndim
-	              for scalar_type, ndim in cartesian(sampler_data_types, sampler_dims) }
-
-	def __init__(self, value):
-		self.ndim = self.__ndims__[self.name]
-		self.opaque = True
-sampler_doc = Sampler.__doc__
-Sampler = Enum('Sampler', ((s, s) for s in sampler_types), type=Sampler)
-Sampler.__doc__ = sampler_doc
-
-vector_sizes = range(2, 5)
-vector_types = ["{}vec{}".format(scalar_type.prefix, size)
-                for scalar_type, size in cartesian(Scalar, vector_sizes) ]
-class Vector(str, BasicType, Enum):
-	'''The GLSL vector types.
-
-	Vectors define the following attributes:
-
-	*scalar_type*
-	  The :py:class:`Scalar` type that defines a single element of the vector
-	*shape*
-	  A 1-tuple of the number of elements in the vector
-	*machine_type*
-	  The machine representation of this GLSL type as a :py:class:`numpy.dtype`
-	*opaque*
-	  Whether the datatype is an opaque type (:py:obj:`False`)
-	'''
-	__scalar_types__ = { "{}vec{}".format(scalar_type.prefix, size): scalar_type
-	                     for scalar_type, size in cartesian(Scalar, vector_sizes) }
-	__shapes__ = { "{}vec{}".format(scalar_type.prefix, size): (size,)
-	              for scalar_type, size in cartesian(Scalar, vector_sizes) }
-
-	def __init__(self, value):
-		self.scalar_type = self.__scalar_types__[self.name]
-		self.shape = self.__shapes__[self.name]
-		self.machine_type = dtype((self.scalar_type.machine_type, self.shape))
-		self.opaque = False
-
-	@classmethod
-	def fromType(cls, scalar_type, size):
-		return cls[''.join((scalar_type.prefix, 'vec', str(size)))]
-
-vector_doc = Vector.__doc__
-Vector = Enum('Vector', ((v, v) for v in vector_types), type=Vector)
-Vector.__doc__ = vector_doc
-
-matrix_types = ( ["{}mat{}".format(scalar_type.prefix, size)
-                  for scalar_type, size in cartesian(floating_point_scalars, vector_sizes)]
-               + ["{}mat{}x{}".format(scalar_type.prefix, size1, size2)
-                  for scalar_type, size1, size2
-                  in cartesian(floating_point_scalars, vector_sizes, vector_sizes)] )
-class Matrix(str, BasicType, Enum):
-	'''The GLSL matrix types.
-
-	Matrices define the following attributes:
-
-	*scalar_type*
-	  The :py:class:`Scalar` type that defines a single element of the matrix
-	*shape*
-	  A 2-tuple of the number of elements along each dimension
-	*opaque*
-	  Whether the datatype is an opaque type (:py:obj:`False`)
-	'''
-
-	__scalar_types__ = { "{}mat{}".format(scalar_type.prefix, size): scalar_type
-	                     for scalar_type, size in cartesian(floating_point_scalars, vector_sizes) }
-	__scalar_types__.update({ "{}mat{}x{}".format(scalar_type.prefix, size1, size2): scalar_type
-	                          for scalar_type, size1, size2
-	                          in cartesian(floating_point_scalars, vector_sizes, vector_sizes) })
-
-	__shapes__ = { "{}mat{}".format(scalar_type.prefix, size): (size, size)
-	              for scalar_type, size in cartesian(floating_point_scalars, vector_sizes) }
-	__shapes__.update({ "{}mat{}x{}".format(scalar_type.prefix, size1, size2): (size1, size2)
-	                   for scalar_type, size1, size2
-	                   in cartesian(floating_point_scalars, vector_sizes, vector_sizes) })
-
-	def __init__(self, value):
-		self.shape = self.__shapes__[self.name]
-		self.scalar_type = self.__scalar_types__[self.name]
-		self.machine_type = dtype((self.scalar_type.machine_type, self.shape))
-		self.opaque = False
-
-	@classmethod
-	def fromType(cls, scalar_type, shape):
-		columns, rows = shape
-		return cls[''.join((scalar_type.prefix, 'mat', str(columns), 'x', str(rows)))]
-
-	@property
-	def rows(self):
-		return self.shape[1]
-
-	@property
-	def columns(self):
-		return self.shape[0]
-
-	def __getitem__(self, idx):
-		if idx >= self.shape[0]:
-			raise IndexError("Index {} out of bounds for {}".format(idx, self))
-		return Vector.fromType(self.scalar_type, self.shape[1])
-matrix_doc = Matrix.__doc__
-Matrix = Enum('Matrix', ((m, m) for m in matrix_types), type=Matrix)
-Matrix.__doc__ = matrix_doc
-
-glsl_types = [Scalar, Vector, Matrix, Sampler]
-
-class Struct:
-	'''A GLSL ``struct``
-
-	:param str name: The name of the struct
-	:param \\*contents: The contents of the struct
-	:type \\*contents: [:py:class:`.Variable`]
-	'''
-
-	def __init__(self, name, *contents):
-		self.name = name
-		self.contents = OrderedDict((var.name, var) for var in contents)
-
-	def __str__(self):
-		contents = '; '.join(str(c) for c in self.contents)
-		return "struct {} {{ {}; }}".format(self.name, contents)
-
-	def __repr__(self):
-		return "{}(name='{}' contents={})".format(type(self).__name__, self.name, self.contents)
-
-	def __len__(self):
-		'''Returns the number of members of the struct.
-
-		:rtype: :py:obj:`int`
-		'''
-		return len(self.contents)
-
-	def __getitem__(self, idx):
-		'''Returns a member of the struct.
-
-		:rtype: :py:class:`.Variable`
-		'''
-		return self.contents[idx]
-
-	def __iter__(self):
-		'''Iterates over the members of the struct.
-
-		:rtype: [:py:class:`.Variable`]
-		'''
-		return iter(self.contents.values())
-
-	def __hash__(self):
-		return hash((self.name, tuple(self.contents.items())))
-
-	def __eq___(self):
-		return self.name == other.name and self.contents == other.contents
+    @property
+    def shape(self):
+        return (self.columns, self.rows)
+    @property
+    def machine_type(self):
+        # FIXME: Return ((scalar, cols), rows) instead?
+        # Consistency with arrays, perhaps uniform memory?
+        return dtype((self.scalar_type.machine_type, self.shape))
 
 def formatShape(shape):
-	array = ']['.join(str(s) for s in shape)
-	return '[{}]'.format(array)
+    return ''.join('[{}]'.format(s) for s in shape)
 
-class Array:
-	'''A GLSL array.
+class _ArrayMeta(_DatatypeMeta):
+    def __new__(cls, element, length):
+        name = "{}_Array_{}".format(element.__qualname__, length)
+        return super().__new__(cls, name, (_IndexableType,), {})
+    def __init__(self, element, length):
+        self.element = element
+        self.length = length
 
-	:param element: The OpenGL type of one element of this array.
-	:type element: :py:class:`.Scalar`, :py:class:`.Vector`
-	  :py:class:`.Matrix`, :py:class:`.Sampler` or :py:class:`.Struct`,
-	  :py:class:`.Array` or :py:obj:`str`
-	:param shape: The shape of the array. A sequence will be transformed into
-	  an array of arrays.
-	:type shape: :py:obj:`int` or [:py:obj:`int`]
-	'''
-	def __init__(self, base, shape=1):
-		try:
-			base = BasicType(base)
-		except ValueError:
-			pass
+    def __str__(self):
+        return ''.join((str(self.base), formatShape(self.full_shape)))
+    def __len__(self):
+        return self.length
+    def __getitem__(self, idx):
+        if not (0 <= idx < len(self)):
+            raise IndexError("Index {} out of range for array with length {}"
+                                .format(idx, len(self)))
+        return self.element
+    def __hash__(self):
+        return hash((self.element, self.length))
+    def __eq__(self, other):
+        return (self.element == other.element
+                and self.length == other.length)
 
-		try:
-			shape, *child_shapes = shape
-		except TypeError:
-			child_shapes = ()
+    @property
+    def full_shape(self):
+        return (len(self),) + getattr(self.element, 'full_shape', ())
+    @property
+    def base(self):
+        return getattr(self.element, 'base', self.element)
+    @property
+    def machine_type(self):
+        return dtype((self.element.machine_type, len(self)))
 
-		self.array_shape = shape
-		self.element = base if not child_shapes else Array(base, child_shapes)
+class _StructMember(?):
+    ...
 
-	@property
-	def full_shape(self):
-		'''The shape of this array and all child arrays.'''
-		return (self.array_shape, ) + getattr(self.element, 'full_shape', ())
+class StructMeta(type):
+    # Have a new StructMember (meta)class?
+    def __new__(cls, name, *contents):
+        return super().__new__(cls, name, (), {})
+    def __init__(self, name, *contents):
+        self.name = name
+        self.contents = OrderedDict((c.name, type(c)('.'.join((name, c.name))))
+                                    for c in contents)
 
-	@property
-	def base(self):
-		'''The non-array base of this array.'''
-		return getattr(self.element, 'base', self.element)
+    def __str__(self):
+        return "struct {} {{ {}; }}".format(self.name, '; '.join(map(str, self)))
+    def __iter__(self):
+        return  iter(self.contents.values())
+    def __getitem__(self, name):
+        return self.contents[name]
+    def __len__(self):
+        return len(self.contents)
 
-	def __str__(self):
-		return ''.join((self.base.name, formatShape(self.full_shape)))
+Float = _ScalarMeta('Float', dtype('float32'), '')
+Double = _ScalarMeta('Double', dtype('float64'), 'd')
+Int = _ScalarMeta('Int', dtype('int32'), 'i')
+Uint = _ScalarMeta('Uint', dtype('uint32'), 'u')
+Bool = _ScalarMeta('Bool', dtype('uint32'), 'b')
 
-	def __getitem__(self, idx):
-		'''Returns an element of the array.
+scalar_types = (Float, Double, Int, Uint, Bool)
 
-		:rtype: :py:class:`BasicType` or :py:class:`Struct` or :py:class:`Array`
-		'''
-		if not 0 <= idx < self.array_shape:
-			raise IndexError("No such array element '{}'".format(idx))
-		return self.element # All elements identical
+vector_sizes = range(2, 5)
+for scalar_type, length in cartesian(scalar_types, vector_sizes):
+    cls = _VectorMeta(scalar_type, length)
+    locals()[cls.__name__] = cls
 
-	def __len__(self):
-		'''Returns the numer of elements in the array
-
-		:rtype: :py:obj:`int`
-		'''
-		return self.array_shape
-
-	def __iter__(self):
-		'''Iterates over all elements in the array.
-
-		:rtype: [:py:class:`BasicType`] or [:py:class:`Struct`] or [:py:class:`Array`]
-		'''
-		return iter(repeat(self.element, self.array_shape))
-
-	def __eq__(self, other):
-		return self.element == other.element and self.array_shape == other.array_shape
-
-	def __hash__(self):
-		return hash((self.element, self.array_shape))
+for scalar_type, columns, rows in cartesian(scalar_types, vector_sizes, vector_sizes):
+    cls = _MatrixMeta(scalar_type, columns, rows)
+    locals()[cls.__name__] = cls
