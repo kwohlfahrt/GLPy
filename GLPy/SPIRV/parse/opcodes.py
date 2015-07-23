@@ -164,6 +164,14 @@ class OpCode:
         # oplength is in words, and includes (opcode, oplength)
         return opcode.fromBytes(f.read((oplength - 1) * 4))
 
+    @classmethod
+    def parse_all(cls, f):
+        while True:
+            try:
+                yield cls.parse(f)
+            except StructError:
+                break
+
 opcodes = map(OpCode.fromTable,
               spec_tree.xpath('//a[@id="Instructions"]/../../div/table/tbody'))
 for opcode in opcodes:

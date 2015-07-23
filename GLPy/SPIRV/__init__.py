@@ -1,1 +1,1 @@
-from .parse.parse import parse
+from .parse.module import Module
