@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 
 from .enums import magic_number
-from .opcodes import OpCode
+from .opcodes import *
 from .util import unpackStream, iterUnpackStream
 from struct import error as StructError
 
-from .util import PartitionedGenerator
-
-def checkOpName(*names):
-    names = set(names)
-    def f(opcode):
-        return opcode.name in names
-    return f
+def parseAll(f, *opcodes):
+    while True:
+        for opcode in opcodes:
+            try:
+                r = opcode.parse(f)
+            except ValueError:
+                pass
+            else:
+                break
+        else:
+            break
+        yield r
 
 class Module:
     def __init__(self, version, generator_id, id_bound,
@@ -50,29 +55,28 @@ class Module:
         if zero != 0:
             raise ValueError("Expected fifth word of file to be 0, got {}".format(zero))
 
-        opcodes = PartitionedGenerator(OpCode.parse_all(f))
-        source = opcodes.get(checkOpName('OpSource'), default=None)
-        source_extensions = list(opcodes.yield_while(checkOpName('OpSourceExtension')))
-        compile_flags = list(opcodes.yield_while(checkOpName('OpCompileFlag')))
-        extensions = list(opcodes.yield_while(checkOpName('OpExtension')))
-        instruction_imports = list(opcodes.yield_while(checkOpName('OpExtInstImport')))
-        memory_model = opcodes.get(checkOpName('OpMemoryModel'))
-        entry_points = list(opcodes.yield_while(checkOpName('OpEntryPoint')))
-        execution_modes = list(opcodes.yield_while(checkOpName('OpExecutionMode')))
-        strings = list(opcodes.yield_while(checkOpName('OpString')))
-        names = list(opcodes.yield_while(checkOpName('OpName', 'OpMemberName')))
-        lines = list(opcodes.yield_while(checkOpName('OpLine')))
-        decorations = list(opcodes.yield_while(checkOpName('OpDecorate', 'OpMemberDecorate',
-                                                           'OpGroupDecorate', 'OpGroupMemberDecorate',
-                                                           'OpDecorationGroup')))
-        # TODO: Test variable scope != `StorageClass.Function`
-        types, consts, variables = map(list,
-                                       opcodes.yield_any(lambda oc: oc.name.startswith('OpType'),
-                                                         lambda oc: oc.name.startswith('OpConstant'),
-                                                         checkOpName('OpVariable')))
+        source = OpSource.parse(f)
+        source_extensions = list(parseAll(f, OpSourceExtension))
+        compile_flags = list(parseAll(f, OpCompileFlag))
+        extensions = list(parseAll(f, OpExtension))
+        instruction_imports = list(parseAll(f, OpExtInstImport)) # Has result ID
+        memory_model = OpMemoryModel.parse(f)
+        entry_points = list(parseAll(f, OpEntryPoint))
+        execution_modes = list(parseAll(f, OpExecutionMode))
+        strings = list(parseAll(f, OpString)) # Has result ID
+        names = list(parseAll(f, OpName, OpMemberName)) # May forward reference
+        lines = list(parseAll(f, OpLine)) # May forward reference
+        decorations = list(parseAll(f, OpDecorate, OpMemberDecorate,
+                                    OpGroupDecorate, OpGroupMemberDecorate,
+                                    OpDecorationGroup)) # May forward reference
+        tcv = list(parseAll(f, OpVariable, *(constant_opcodes + type_opcodes)))
+        types = list(filter(lambda o: o.name.startswith('OpType'), tcv))
+        variables = list(filter(lambda o: o is OpVariable, tcv))
+        consts = list(filter(lambda o: o.name.startswith('OpConstant'), tcv))
 
         return cls(version, generator, id_bound,
                    memory_model, entry_points, source, source_extensions,
                    execution_modes, compile_flags, extensions,
                    instruction_imports, strings, names, lines, decorations,
-                   types, variables, consts)# function_declarations, function_definitions)
+                   types, variables, consts, # function_declarations, function_definitions)
+                   )

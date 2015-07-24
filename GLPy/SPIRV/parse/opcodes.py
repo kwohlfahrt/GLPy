@@ -2,7 +2,8 @@ from .specification import spec_tree, normalizeWhitespace, text
 from .enums import *
 from .util import unpackStream, iterUnpackStream
 from io import BytesIO
-from struct import error as StructError
+from struct import calcsize, error as StructError
+from os import SEEK_CUR
 
 class Id(int):
     @classmethod
@@ -133,7 +134,6 @@ class OpCode:
         min_length = int(text(length).split('+')[0].strip())
         word = int(text(word), 0)
         params = list(map(OpParam.fromElement, params))
-        print(name, params)
         return cls(name, description, required_capability, min_length, word, *params)
 
     def __str__(self):
@@ -158,24 +158,23 @@ class OpCode:
             prefix = "{0:>4}  {0:>4}".format('')
         return self
 
-    @classmethod
-    def parse(cls, f):
+    def parse(self, f):
         opcode_format = '2H'
         opcode, oplength = unpackStream(opcode_format, f)
-        opcode = cls.opcodes[opcode]
-
+        if opcode != self.word:
+            f.seek(-calcsize(opcode_format), SEEK_CUR)
+            raise ValueError("Incorrect opcode {}, expected {}"
+                             .format(opcode, self.word))
         # oplength is in words, and includes (opcode, oplength)
-        return opcode.fromBytes(f.read((oplength - 1) * 4))
-
-    @classmethod
-    def parse_all(cls, f):
-        while True:
-            try:
-                yield cls.parse(f)
-            except StructError:
-                break
+        return self.fromBytes(f.read((oplength - 1) * 4))
 
 opcodes = map(OpCode.fromTable,
               spec_tree.xpath('//a[@id="Instructions"]/../../div/table/tbody'))
+constant_opcodes = []
+type_opcodes = []
 for opcode in opcodes:
+    if opcode.name.startswith('OpConstant'):
+        constant_opcodes.append(opcode)
+    if opcode.name.startswith('OpType'):
+        type_opcodes.append(opcode)
     locals()[opcode.name] = opcode
