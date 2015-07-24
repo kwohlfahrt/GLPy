@@ -15,6 +15,11 @@ struct S {
 };
 uniform S s;
 
+float foo(in float x, inout vec4 v){
+    v.x += x;
+    return v.x * x;
+}
+
 void main()
 {
     vec4 scale = vec4(1.0, 1.0, 2.0, 1.0);
@@ -36,6 +41,6 @@ void main()
         color += 8;
     case (4):
     default:
-        color += 0;
+        scale.x += foo(2, color);
     }
 }
