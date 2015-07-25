@@ -72,14 +72,16 @@ class OpParam:
                 self.type = MultiId
             elif param_type == 'literal, literal, …':
                 self.type = MultiLiteral
-            elif param_type == 'literal, label <id>,':
+            elif param_type == 'literal, label <id>, literal, label <id>, …':
                 self.type = SwitchTarget
             else:
                 raise
 
     @classmethod
     def fromElement(cls, element):
-        param_type, *description = element.xpath('p//text()')
+        param_type = element.xpath('./p/*[count(preceding-sibling::br) < 1]//text()')
+        param_type = normalizeWhitespace(*param_type)
+        description = element.xpath('./p/*[count(preceding-sibling::br) >= 1]//text()')
         description = normalizeWhitespace(*description)
         return cls(param_type, description)
 
@@ -130,7 +132,8 @@ class OpCode:
         length, word, *params = params.xpath('td')
         min_length = int(text(length).split('+')[0].strip())
         word = int(text(word), 0)
-        params = map(OpParam.fromElement, params)
+        params = list(map(OpParam.fromElement, params))
+        print(name, params)
         return cls(name, description, required_capability, min_length, word, *params)
 
     def __str__(self):
