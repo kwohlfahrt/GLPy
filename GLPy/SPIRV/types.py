@@ -23,6 +23,12 @@ class TypeFloat(ScalarType):
     def __init__(self, bits: int):
         self.bits = bits
 
+    def __hash__(self) -> int:
+        return hash((type(self), self.bits))
+    def __eq__(self) -> bool:
+        return (type(self) == type(other)
+                and self.bits == other.bits)
+
     @property
     def machine_type(self):
         return dtype("float{}".format(self.bits))
@@ -45,6 +51,12 @@ class TypeInt(ScalarType):
         self.bits = bits
         self.signed = signed
 
+    def __hash__(self) -> int:
+        return hash((type(self), self.bits, self.signed))
+    def __eq__(self) -> bool:
+        return (type(self) == type(other)
+                and self.bits == other.bits)
+
     @property
     def machine_type(self):
         return dtype("{}int{}".format('' if self.signed else 'u', self.bits))
@@ -62,6 +74,11 @@ class TypeBool(ScalarType):
 
     def __new__(cls):
         return super().__new__(cls, 'Bool', (), {})
+
+    def __eq__(self):
+        return type(self) == type(other)
+    def __hash__(self):
+        return hash(type(self))
 
 class TypeVector(PrimitiveType):
     def __new__(cls, component_type: ScalarType, component_count: int):
