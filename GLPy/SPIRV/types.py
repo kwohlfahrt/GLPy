@@ -18,16 +18,21 @@ class TypeFloat(_LeafType):
     def __init__(self, bits: int):
         self.bits = bits
         self.name = self.__name__.lower()
-        if bits == 16:
-            self.prefix = 'h'
-        elif bits == 32:
-            self.prefix = 'f'
-        elif bits == 64:
-            self.prefix = 'd'
 
     @property
     def machine_type(self):
         return dtype("float{}".format(self.bits))
+    @property
+    def prefix(self):
+        if bits == 16:
+            return 'h'
+        elif bits == 32:
+            return 'f'
+        elif bits == 64:
+            return 'd'
+        else:
+            return 'f{}'.format(self.bits)
+
 
 class TypeInt(_LeafType):
     def __new__(cls, bits: int, signed: bool):
@@ -37,11 +42,17 @@ class TypeInt(_LeafType):
         self.bits = bits
         self.signed = signed
         self.name = self.__name__.lower()
-        if bits == 32:
-            self.prefix = 'i' if signed else 'u'
+
     @property
     def machine_type(self):
         return dtype("{}int{}".format('' if self.signed else 'u', self.bits))
+    @property
+    def prefix(self):
+        letter = 'i' if self.signed else 'u'
+        if self.bits == 32:
+            return letter
+        else:
+            return '{}{}'.format(letter, self.bits)
 
 class TypeBool(_LeafType):
     prefix = 'b'
