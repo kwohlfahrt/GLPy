@@ -1,29 +1,33 @@
 from itertools import repeat, product as cartesian
 from numpy import dtype
+from typing import Tuple
 
-from .constants import *
+from .parse.enums import *
 
-class _BaseType(type):
-    def __str__(self):
-        return self.name
-
-class _LeafType(type):
-    '''The basic types to build with.'''
+class SPIRVType(type):
     pass
 
-class TypeFloat(_LeafType):
+class PrimitiveType(SPIRVType):
+    '''A scalar type, or vector or matrix thereof'''
+    def __str__(self):
+        return self.__name__.lower()
+
+class ScalarType(PrimitiveType):
+    '''A floating-point, integer or boolean type'''
+    pass
+
+class TypeFloat(ScalarType):
     def __new__(cls, bits: int):
         name = 'Float{}'.format(bits)
         return super().__new__(cls, name, (), {})
     def __init__(self, bits: int):
         self.bits = bits
-        self.name = self.__name__.lower()
 
     @property
     def machine_type(self):
         return dtype("float{}".format(self.bits))
     @property
-    def prefix(self):
+    def prefix(self) -> str:
         if bits == 16:
             return 'h'
         elif bits == 32:
@@ -33,46 +37,41 @@ class TypeFloat(_LeafType):
         else:
             return 'f{}'.format(self.bits)
 
-
-class TypeInt(_LeafType):
+class TypeInt(ScalarType):
     def __new__(cls, bits: int, signed: bool):
         name = '{}int{}'.format('' if signed else 'u', bits).capitalize()
         return super().__new__(cls, name, (), {})
     def __init__(self, bits: int, signed: bool):
         self.bits = bits
         self.signed = signed
-        self.name = self.__name__.lower()
 
     @property
     def machine_type(self):
         return dtype("{}int{}".format('' if self.signed else 'u', self.bits))
     @property
-    def prefix(self):
+    def prefix(self) -> str:
         letter = 'i' if self.signed else 'u'
         if self.bits == 32:
             return letter
         else:
             return '{}{}'.format(letter, self.bits)
 
-class TypeBool(_LeafType):
+class TypeBool(ScalarType):
     prefix = 'b'
-    # No bit pattern or physical size defined
+    # No bit pattern or physical size defined, not allowed in visible memory
 
     def __new__(cls):
         return super().__new__(cls, 'Bool', (), {})
-    def __init__(self):
-        self.name = self.__name__.lower()
 
-class TypeVector(_BaseType):
-    def __new__(cls, component_type: _LeafType, component_count: int):
+class TypeVector(PrimitiveType):
+    def __new__(cls, component_type: ScalarType, component_count: int):
         if component_count < 2:
             raise ValueError("Vector types must have at least 2 components")
         name = '{}vec{}'.format(component_type.prefix, component_count).capitalize()
         return super().__new__(cls, name, (), {})
-    def __init__(self, component_type: _LeafType, component_count):
+    def __init__(self, component_type: ScalarType, component_count: int):
         self.component_type = component_type
         self.component_count = component_count
-        self.name = self.__name__.lower()
 
     def __hash__(self):
         return hash((self.component_type, self.component_count))
@@ -80,7 +79,7 @@ class TypeVector(_BaseType):
         return (self.component_type == other.component_type
                 and self.component_count == other.component_count)
 
-class TypeMatrix(type):
+class TypeMatrix(PrimitiveType):
     def __new__(cls, column_type: TypeVector, column_count: int):
         if column_count < 2:
             raise ValueError("Vector types must have at least 2 components")
@@ -90,7 +89,6 @@ class TypeMatrix(type):
     def __init__(self, column_type: TypeVector, column_count: int):
         self.column_type = column_type
         self.column_count = column_count
-        self.name = self.__name__.lower()
 
     def __hash__(self):
         return hash((self.columns_type, self.columns_count))
@@ -105,13 +103,13 @@ class TypeMatrix(type):
                              .format(idx, len(self)))
         return self.column_type
 
-class TypeArray(type):
-    def __new__(cls, element_type: _BaseType, length: int):
+class TypeArray(SPIRVType):
+    def __new__(cls, element_type: SPIRVType, length: int):
         if length < 0:
             raise ValueError("Array types must have length of 1 or greater")
         name = '_Array_'.join((element_type.__qualname__, str(length)))
         return super().__new__(cls, name, (), {})
-    def __init__(self, element_type: _BaseType, length: int):
+    def __init__(self, element_type: SPIRVType, length: int):
         self.element_type = element_type
         self.length = length
 
@@ -137,12 +135,12 @@ class TypeArray(type):
     def base(self):
         return getattr(self.element_type, 'base', self.element_type)
 
-class TypeStruct(type):
-    def __new__(cls, *contents: [_BaseType]):
+class TypeStruct(SPIRVType):
+    def __new__(cls, *contents: Tuple[SPIRVType, ...]):
         # FIXME: Find something that would be a legal identifier name?
         name = 'Struct({})'.format(' '.join(map(repr, contents)))
         return super().__new__(cls, name, (), {})
-    def __init__(self, *contents: [_BaseType]):
+    def __init__(self, *contents: Tuple[SPIRVType, ...]):
         self.contents = contents
 
     def __hash__(self):
@@ -150,11 +148,11 @@ class TypeStruct(type):
     def __eq__(self, other):
         return self.contents == other.contents
 
-class TypePointer(type):
-    def __new__(cls, target, storage: StorageClass):
+class TypePointer(SPIRVType):
+    def __new__(cls, target: SPIRVType, storage: StorageClass):
         name = "Pointer({}, storage={})".format(repr(target), storage)
         return super().__new__(cls, name, (), {})
-    def __init__(self, target, storage: StorageClass):
+    def __init__(self, target: SPIRVType, storage: StorageClass):
         self.target = target
         self.storage = storage
 
