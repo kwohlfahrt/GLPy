@@ -1,4 +1,4 @@
-from .specification import spec_tree, text, normalizeWhitespace
+from .specification import spec_tree, text, normalizeWhitespace, text
 from .util import unpackStream
 from functools import partial
 from enum import Enum
@@ -21,6 +21,7 @@ class SPIRVEnum(Enum):
         enum_name = ''.join(enum_name.split())
         rows = ((elem.xpath('p//text()') for elem in row.xpath('td'))
                 for row in table.xpath('tbody/tr'))
+
         values = []
         for (word,), (name, *description), *extras in rows:
             word = int(word, base=0)
@@ -42,41 +43,16 @@ class SPIRVEnum(Enum):
     def parse(cls, b):
         return cls(*unpackStream('I', b))
 
-enum_names = ['Source Language',
-              'Execution Model',
-              'Addressing Model',
-              'Memory Model',
-              'Execution Mode',
-              'Storage Class',
-              'Dim',
-              'Sampler Addressing Mode',
-              'Sampler Filter Mode',
-              'Image Format',
-              'Image Channel Order',
-              'Image Channel Data Type',
-              'Image Operands',
-              'FP Fast Math Mode',
-              'FP Rounding Mode',
-              'Linkage Type',
-              'Access Qualifier',
-              'Function Parameter Attribute',
-              'Decoration',
-              'BuiltIn',
-              'Selection Control',
-              'Loop Control',
-              'Function Control',
-              'Memory Semantics <id>',
-              'Memory Access',
-              'Scope <id>',
-              'Group Operation',
-              'Kernel Enqueue Flags',
-              'Kernel Profiling Info',]
+def _getEnumTables(tree):
+    binary_section_xpath = '//a[@id="Binary"]/../../div[@class="sectionbody"]'
 
-def _getTable(tree, header_id):
-    table, = tree.xpath('//a[@id="{}"]/../../table'.format(header_id))
-    return table
+    exclusion_template = 'not(descendant::a[@id="{}"])'
+    exclusions = ' and '.join(exclusion_template.format(e) for e in ("Instructions", "Magic"))
 
-for enum in map(SPIRVEnum.fromTable, map(partial(_getTable, spec_tree), enum_names)):
+    enum_xpath = '/div[@class="sect2" and {}]'.format(exclusions)
+    return tree.xpath(binary_section_xpath + enum_xpath + '/table')
+
+for enum in map(SPIRVEnum.fromTable, _getEnumTables(spec_tree)):
     locals()[enum.__name__] = enum
 
-magic_number = int(text(*_getTable(spec_tree, "Magic").xpath('tbody')), 16)
+magic_number = int(text(spec_tree.xpath('//a[@id="Magic"]/../../table/tbody')[0]), 16)
