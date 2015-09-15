@@ -124,9 +124,10 @@ class TypeMatrix(PrimitiveType):
                              .format(idx, len(self)))
         return self.column_type
 
+# TODO: RuntimeArray
 class TypeArray(SPIRVType):
     def __new__(cls, element_type: SPIRVType, length: int):
-        if length < 0:
+        if length < 1:
             raise ValueError("Array types must have length of 1 or greater")
         name = '_Array_'.join((element_type.__qualname__, str(length)))
         return super().__new__(cls, name, (), {})
