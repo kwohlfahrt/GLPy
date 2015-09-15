@@ -1,80 +1,37 @@
-from .specification import spec_tree, normalizeWhitespace, text
 from .enums import *
-from .util import unpackStream, iterUnpackStream
+from .terms import *
+
+from .specification import spec_tree, normalizeWhitespace, text
+from .util import unpackStream
+
 from io import BytesIO
-from struct import calcsize, error as StructError
+from struct import calcsize
 from os import SEEK_CUR
-
-class Id(int):
-    @classmethod
-    def parse(cls, b):
-        return cls(*unpackStream('I', b))
-
-    def __str__(self):
-        return "<{}>".format(super().__str__())
-    def __repr__(self):
-        return "<{}>".format(super().__str__())
-
-class ResultId(Id):
-    pass
-class OptionalId(Id):
-    @classmethod
-    def parse(cls, b):
-        try:
-            return cls(*unpackStream('I', b))
-        except StructError:
-            return None
-
-class MultiId:
-    @classmethod
-    def parse(cls, b):
-        return [Id(*i) for i in iterUnpackStream('I', b)]
-
-class LiteralNumber(int):
-    @classmethod
-    def parse(cls, b):
-        return cls(*unpackStream('I', b))
-
-class LiteralString(str):
-    @classmethod
-    def parse(cls, b):
-        return cls(b.read().decode('UTF-8'))
-    def __str__(self):
-        return repr(self.strip('\0'))
-
-class MultiLiteral:
-    @classmethod
-    def parse(cls, b):
-        return [LiteralNumber(*i) for i in iterUnpackStream('I', b)]
-
-class SwitchTarget:
-    @classmethod
-    def parse(cls, b):
-        return [(LiteralNumber(literal), Id(label)) for literal, label
-                in iterUnpackStream('2I', b)]
 
 class OpParam:
     def __init__(self, param_type, description):
         self.description = description
         try:
+            # Get from terms and enums
             self.type = globals()[''.join(param_type.split())]
         except KeyError:
-            if param_type == '<id>':
+            if param_type in ('<id>', 'Scope <id>', 'Memory Semantics <id>'):
                 self.type = Id
             elif param_type == 'Result <id>':
                 self.type = ResultId
-            elif param_type == 'Literal Number':
-                self.type = LiteralNumber
-            elif param_type == 'Literal String':
-                self.type = LiteralString
             elif param_type == 'Optional <id>':
                 self.type = OptionalId
             elif param_type == '<id>, <id>, …':
                 self.type = MultiId
-            elif param_type == 'literal, literal, …':
+            elif param_type in ('literal, literal, …', 'optional literal(s)'):
                 self.type = MultiLiteral
+            elif param_type == '<id>, literal, <id>, literal, …':
+                self.type = MultiIdLiteralPair
             elif param_type == 'literal, label <id>, literal, label <id>, …':
-                self.type = SwitchTarget
+                self.type = MultiLiteralIdPair
+            elif param_type == 'Optional Image Operands, <id>, <id>, …':
+                #TODO: Implement these
+                self.type = ImageOperands
             else:
                 raise
 
