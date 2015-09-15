@@ -4,8 +4,7 @@ def unpackStream(fmt, stream):
     return unpack(fmt, stream.read(calcsize(fmt)))
 
 def iterUnpackStream(fmt, stream):
-    while True:
-        data = stream.read(calcsize(fmt))
-        if not data:
-            break
+    data = stream.read(calcsize(fmt))
+    while data:
         yield unpack(fmt, data)
+        data = stream.read(calcsize(fmt))
