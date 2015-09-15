@@ -1,6 +1,6 @@
 from itertools import repeat, product as cartesian
 from numpy import dtype
-from typing import Tuple
+from typing import Tuple, Optional
 
 from .parse.enums import *
 
@@ -13,10 +13,14 @@ class PrimitiveType(SPIRVType):
         return self.__name__.lower()
 
 class ScalarType(PrimitiveType):
-    '''A floating-point, integer or boolean type'''
+    '''A numerical or boolean type'''
     pass
 
-class TypeFloat(ScalarType):
+class NumericalType(ScalarType):
+    '''A floating-point or integer type'''
+    pass
+
+class TypeFloat(NumericalType):
     def __new__(cls, bits: int):
         name = 'Float{}'.format(bits)
         return super().__new__(cls, name, (), {})
@@ -43,7 +47,7 @@ class TypeFloat(ScalarType):
         else:
             return 'f{}'.format(self.bits)
 
-class TypeInt(ScalarType):
+class TypeInt(NumericalType):
     def __new__(cls, bits: int, signed: bool):
         name = '{}int{}'.format('' if signed else 'u', bits).capitalize()
         return super().__new__(cls, name, (), {})
@@ -180,6 +184,52 @@ class TypePointer(SPIRVType):
                 and self.storage == other.storage)
     def __str__(self):
         return "ptr[{}]".format(str(self.target))
+
+class TypeImage(SPIRVType):
+    def __new__(cls, sampled_type: NumericalType, dimensionality: Dim, arrayed: bool,
+                multisample: bool, sampled: Optional[bool], image_format: ImageFormat,
+                access: AccessQualifier):
+        name = 'Image'
+        if multisample:
+            name = 'Multisample' + name
+        if array:
+            name = name + 'Array'
+
+        return super().__new__(cls, name, (), {})
+
+    def __init__(cls, sampled_type: NumericalType, dimensionality: Dim, arrayed: bool,
+                multisample: bool, sampled: Optional[bool], image_format: ImageFormat,
+                access: AccessQualifier):
+        self.sampled_type = sampled_type
+        self.dimensionality = dimensionality
+        self.arrayed = arrayed
+        self.multisample = multisample
+        self.sampled = sampled
+        self.image_format = image_format
+        self.access = access
+
+    def __hash__(self):
+        return hash((type(self), self.sampled_type, self.dimensionality,
+                     self.arrayed, self.multisample, self.sampled,
+                     self.image_format, self.access, ))
+    def __eq__(self):
+        return (type(self) == type(other)
+                and self.sampled_type == other.sampled_type
+                and self.dimensionality == other.dimensionality
+                and self.arrayed == other.arrayed
+                and self.multisample == other.multisample
+                and self.sampled == other.sampled
+                and self.image_format == other.image_format
+                and self.access == other.access)
+
+class TypeSampler(SPIRVType):
+    def __new__(cls):
+        return super().__new__(cls, "Sampler", (), {})
+
+class TypeSampledImage(SPIRVType):
+    def __new__(cls, image: TypeImage):
+        name = 'Sampled' + image.__name__
+        return
 
 def variable(result_type: TypePointer, storage: StorageClass):
     if result_type.storage != storage:
