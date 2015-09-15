@@ -22,4 +22,4 @@ def normalizeWhitespace(*strings):
     return ' '.join(''.join(strings).split())
 
 def text(element):
-    return normalizeWhitespace(etree.tostring(element, method='text').decode())
+    return normalizeWhitespace(etree.tostring(element, encoding='unicode', method='text'))
