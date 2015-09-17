@@ -38,11 +38,11 @@ class TypeFloat(NumericalType):
         return dtype("float{}".format(self.bits))
     @property
     def prefix(self) -> str:
-        if bits == 16:
+        if self.bits == 16:
             return 'h'
-        elif bits == 32:
-            return 'f'
-        elif bits == 64:
+        elif self.bits == 32:
+            return ''
+        elif self.bits == 64:
             return 'd'
         else:
             return 'f{}'.format(self.bits)
@@ -75,7 +75,6 @@ class TypeInt(NumericalType):
 class TypeBool(ScalarType):
     prefix = 'b'
     # No bit pattern or physical size defined, not allowed in visible memory
-
     def __new__(cls):
         return super().__new__(cls, 'Bool', (), {})
 
@@ -159,8 +158,7 @@ class TypeArray(SPIRVType):
 
 class TypeStruct(SPIRVType):
     def __new__(cls, *contents: Tuple[SPIRVType, ...]):
-        # FIXME: Find something that would be a legal identifier name?
-        name = 'Struct({})'.format(' '.join(map(repr, contents)))
+        name = 'Struct_{}_EndStruct'.format('_'.join(c.__name__ for c in contents))
         return super().__new__(cls, name, (), {})
     def __init__(self, *contents: Tuple[SPIRVType, ...]):
         self.contents = contents
@@ -170,9 +168,12 @@ class TypeStruct(SPIRVType):
     def __eq__(self, other):
         return self.contents == other.contents
 
+    def __str__(self):
+        return "struct {{{}}}".format('; '.join(map(str, self.contents)))
+
 class TypePointer(SPIRVType):
     def __new__(cls, target: SPIRVType, storage: StorageClass):
-        name = "Pointer({}, storage={})".format(repr(target), storage)
+        name = "{}_Pointer_{}".format(storage.name, target.__name__)
         return super().__new__(cls, name, (), {})
     def __init__(self, target: SPIRVType, storage: StorageClass):
         self.target = target
@@ -184,7 +185,7 @@ class TypePointer(SPIRVType):
         return (self.target == other.target
                 and self.storage == other.storage)
     def __str__(self):
-        return "ptr[{}]".format(str(self.target))
+        return "*{}".format(str(self.target))
 
 class TypeImage(SPIRVType):
     def __new__(cls, sampled_type: NumericalType, dimensionality: Dim, arrayed: bool,
